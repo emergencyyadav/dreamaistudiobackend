@@ -1,0 +1,12 @@
+{
+  "users": [
+    {
+      "id": "2325",
+      "name": "yash",
+      "email": "bhatiyash061@gmail.com",
+      "password": "jj22@@",
+      "createdAt": "2026-03-07T02:06:53.308Z"
+    }
+  ],
+  "$schema": "./node_modules/json-server/schema.json"
+}

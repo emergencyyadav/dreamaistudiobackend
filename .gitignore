@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+my-app/.env
+my-app/.env.*
+!my-app/.env.example
+my-app/temp_proxy.js
+my-app/test_api*.mjs
+my-app/build_err.txt
+test_groq.mjs

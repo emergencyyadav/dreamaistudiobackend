@@ -1,0 +1,42 @@
+
+# Privacy Policy
+**Last Updated:** March 21, 2026
+**Website:** DreamAI Studios
+
+### 1. Our "No-Sale" Commitment
+At DreamAI Studios, we believe your private life should stay private. **We do not sell, rent, or trade your personal information, chat histories, or generated images to third parties.** Your data is used exclusively to provide and improve your experience within our ecosystem.
+
+### 2. Information We Collect
+To provide a high-quality, consistent AI experience, we collect:
+* **Account Data:** Email address and login credentials (stored securely via Supabase Auth).
+* **User-Generated Content:** Chat logs, image prompts, and saved character settings.
+* **Technical Data:** IP addresses and device identifiers to prevent fraud and ensure stability.
+* **Payment Data:** We use third-party processors (like Stripe). We do not store your full credit card details on our servers.
+
+### 3. AI-Specific Disclosures
+* **Non-Human Interaction:** All characters on DreamAI Studios are AI entities, not human beings. 
+* **Third-Party Processing:** We transmit anonymized data to specialized providers (e.g., OpenRouter, Fal.ai, Cartesia) to generate responses. They are contractually barred from using your data to train their models.
+* **No Model Training:** We do not use your private conversations to train our base AI models.
+
+### 4. Data Security & Storage
+We utilize **Supabase** with **Row-Level Security (RLS)** and **AES-256 encryption**. This technical architecture ensures that your private data is isolated and accessible only by your authenticated account.
+
+### 5. Your Right to be Forgotten (Instant Deletion)
+We provide you with absolute control over your digital footprint. Unlike many platforms that "archive" or "deactivate" data, DreamAI Studios offers a **Permanent Delete** feature:
+* **One-Click Wipe:** You may trigger an instant deletion via your Account Settings. 
+* **Immediate Effect:** Clicking the delete button initiates a "Cascade Delete" in our Supabase database, instantly removing your profile, chat history, image gallery, and voice data from our live systems.
+* **Irreversibility:** Once triggered, this process is permanent and cannot be undone.
+
+### 6. Safety & Age Restrictions
+* **18+ Only:** DreamAI Studios is strictly for users 18 years of age or older.
+* **Self-Harm Protocol:** In compliance with the 2026 AI Companion Safety Act, our systems are programmed to provide crisis resource referrals if self-harm ideation is detected.
+
+### 7. Contact Us
+For privacy inquiries, please contact:
+**Email:** [dreamaistudio02@gmail.com]
+
+
+---
+
+## Technical Tip for your Delete Button
+Since you are using Supabase, make sure your button triggers a `DELETE` request on the `profiles` table and that you have **Foreign Key Constraints** set to `ON DELETE CASCADE` for your `chats`, `images`, and `voice_logs` tables. 
