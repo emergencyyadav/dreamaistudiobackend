@@ -35,6 +35,10 @@ VITE_SUPABASE_ANON_KEY=...
 
 ## Deployment checklist
 
+- If your host asks for a root directory, use `backend`
+- Build command: `npm run build`
+- Start command: `npm start`
+- Node version: `20.18.0` or newer
 - Never put provider secrets in `VITE_` variables
 - Rotate any keys that were previously exposed in frontend code or generated files
 - Set `ALLOWED_ORIGINS` to your production frontend origin

@@ -1,4 +1,13 @@
 {
+  "name": "aimodel",
+  "private": true,
+  "engines": {
+    "node": ">=20.18.0"
+  },
+  "scripts": {
+    "build": "npm --prefix backend ci && npm --prefix backend run build",
+    "start": "npm --prefix backend start"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1"
   }
