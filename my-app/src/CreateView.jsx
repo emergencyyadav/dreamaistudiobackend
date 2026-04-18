@@ -8,9 +8,9 @@ import {
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { findBestMatchingImage, buildCharacterTags } from './imageSearch';
-import CharacterCreatedModal from './CharacterCreatedModal';
 import { checkContentSafe } from './guard';
 import { backendJson, hasBackend } from './backendApi';
+import CharacterCreatedModal from './CharacterCreatedModal';
 
 const CREATED_CHARACTER_EVENT = 'dreamai:character-created';
 const CHAT_MODEL = 'llama-3.1-8b-instant';
@@ -971,6 +971,7 @@ export default function CreateView({ user, sessionInfo, onRequireLogin, onStartC
             let name = "AI Generated Companion";
             let tags = [gender, style];
             let targetAge = 22;
+            let extractedEthnicity = '';  // Will be extracted from AI response
 
             if (hasBackend) {
                 const systemPrompt = `You are an expert, highly creative AI character designer.
@@ -978,6 +979,7 @@ Based on the provided prompt and fantasy description, create a compelling charac
 You MUST format your output strictly as a JSON object with the following keys:
 "name": A fitting, creative name for the character.
 "age": A number representing their age (between 18 and 90).
+"ethnicity": The character's ethnicity/race as mentioned or implied by the user (e.g. "Latina", "Asian", "Caucasian", "Black", "Middle Eastern", "Indian", "Mixed"). Infer this carefully from the user's description. If they say "latina" return "Latina", if they say "asian" return "Asian", etc. NEVER default to a different ethnicity than what the user described.
 "persona": A concise, engaging 20-30 word summary explaining their appearance, vibe, quirks, and relationship to the user. Do NOT make it longer than 30 words!
 "tags": An array of strings containing up to 6 descriptive tags/tropes (e.g. "Gamer", "Tsundere", "Artist").
 
@@ -989,16 +991,18 @@ Do NOT include any extra text outside the JSON object.`;
                 ];
 
                 try {
-                    const response = { ok: true, json: async () => backendJson('/api/ai/chat', {
-                        method: 'POST',
-                        sessionInfo,
-                        body: {
-                            provider: 'groq',
-                            model: CHAT_MODEL,
-                            messages: apiMessages,
-                            response_format: { type: 'json_object' }
-                        }
-                    }) };
+                    const response = {
+                        ok: true, json: async () => backendJson('/api/ai/chat', {
+                            method: 'POST',
+                            sessionInfo,
+                            body: {
+                                provider: 'groq',
+                                model: CHAT_MODEL,
+                                messages: apiMessages,
+                                response_format: { type: 'json_object' }
+                            }
+                        })
+                    };
 
                     if (response.ok) {
                         const data = await response.json();
@@ -1007,6 +1011,7 @@ Do NOT include any extra text outside the JSON object.`;
                             if (parsed.persona) persona = parsed.persona;
                             if (parsed.name) name = parsed.name;
                             if (parsed.age) targetAge = parsed.age;
+                            if (parsed.ethnicity) extractedEthnicity = parsed.ethnicity;
                             if (parsed.tags && Array.isArray(parsed.tags)) {
                                 tags = [...tags, ...parsed.tags];
                             }
@@ -1014,18 +1019,75 @@ Do NOT include any extra text outside the JSON object.`;
                             console.error("Failed to parse AI JSON response", e);
                         }
                     } else {
-                        console.error("Failed to fetch from Groq", await response.text());
+                        console.error("Failed to fetch from Groq");
                     }
                 } catch (apiErr) {
-                    console.warn("Groq API was blocked by the browser (ad-blocker/privacy shield). Using fallback traits.", apiErr.message);
-                    // It will silently continue to Supabase using the default fallback values.
+                    console.warn("Groq API error or blocked. Using fallback traits.", apiErr.message);
                 }
             }
 
-            // ── Auto-select best matching image from image library ──
-            const searchTags = buildCharacterTags({ gender, style });
+            // ── Auto-generate best matching image via img gen api ──
             const FALLBACK = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
-            const bestImage = await findBestMatchingImage([...searchTags, ...tags.slice(2)], FALLBACK);
+            let bestImage = null;
+
+            if (hasBackend) {
+                try {
+                    const isRealistic = style === 'Realistic';
+                    const imageModel = isRealistic ? 'flux-2-dev' : 'wavespeed-ai/chroma';
+
+                    // Use AI-extracted ethnicity if available, otherwise try to detect from user prompt, finally fall back to selected ethnicity
+                    const imageEthnicity = extractedEthnicity || ethnicity;
+
+                    const qualityPrefix = isRealistic
+                        ? 'Photorealistic portrait of a character, seductive theme, casual portrait, natural skin texture, soft flattering lighting, shallow depth of field, ultra-detailed, high resolution'
+                        : 'Masterpiece, best quality, high-quality anime illustration, vibrant colors, detailed shading, beautiful lighting, trending on Pixiv';
+
+                    const environmentHint = isRealistic
+                        ? 'background and facial expression matching the character personality, natural relaxed pose, intimate casual setting, warm ambient lighting'
+                        : 'with a beautifully detailed anime background, soft pastel tones, atmospheric lighting';
+
+                    const uniqueTags = [...new Set(tags)].filter(t =>
+                        t.toLowerCase() !== gender.toLowerCase() &&
+                        t.toLowerCase() !== style.toLowerCase() &&
+                        t.toLowerCase() !== imageEthnicity.toLowerCase()
+                    );
+                    const searchPrompt = `${qualityPrefix}, ${gender} ${imageEthnicity} person, ${uniqueTags.join(', ')}, ${persona}, ${environmentHint}`;
+
+                    console.log('[Create/AI] Image prompt:', searchPrompt);
+                    console.log('[Create/AI] Using model:', imageModel);
+
+                    const imgData = await backendJson('/api/images/generate', {
+                        method: 'POST',
+                        sessionInfo,
+                        body: {
+                            prompt: searchPrompt,
+                            width: 768,
+                            height: 1024,
+                            count: 1,
+                            model: imageModel
+                        }
+                    });
+                    if (imgData && imgData.urls && imgData.urls.length > 0) {
+                        bestImage = imgData.urls[0];
+                        console.log('[Create/AI] ✅ Image generated:', bestImage);
+                    } else {
+                        console.error('[Create/AI] ❌ No URLs in response. Full response:', JSON.stringify(imgData));
+                    }
+                } catch (imgErr) {
+                    console.error('[Create/AI] ❌ Image generation FAILED:', imgErr.message);
+                    console.error('[Create/AI] Full error:', imgErr);
+                }
+            }
+
+            if (!bestImage) {
+                try {
+                    const searchTags = buildCharacterTags({ gender, style });
+                    bestImage = await findBestMatchingImage([...searchTags, ...tags.slice(2)], FALLBACK);
+                } catch (fallbackErr) {
+                    console.warn("Fallback image search failed", fallbackErr);
+                    bestImage = FALLBACK;
+                }
+            }
 
             // ── Generate public description (second-person, 100-200 words) ──
             let aiPublicDesc = '';
@@ -1041,20 +1103,22 @@ IMPORTANT RULES:
 - Example style: "She is your devoted, obsessed wife who lives for every moment with you. You'll find her to be sweet yet quietly intense, always knowing what you need before you say a word..."
 - Keep it between 100-200 words. Return ONLY the description text, no quotes, no intro.`;
 
-                    const descRes = { ok: true, json: async () => backendJson('/api/ai/chat', {
-                        method: 'POST',
-                        sessionInfo,
-                        body: {
-                            provider: 'groq',
-                            model: CHAT_MODEL,
-                            messages: [
-                                { role: 'system', content: descPrompt },
-                                { role: 'user', content: `Character: ${name}, Age: ${targetAge}, Gender: ${gender}, Style: ${style}. Tags: ${tags.join(', ')}. Persona: ${persona}` }
-                            ],
-                            max_tokens: 350,
-                            temperature: 0.85
-                        }
-                    }) };
+                    const descRes = {
+                        ok: true, json: async () => backendJson('/api/ai/chat', {
+                            method: 'POST',
+                            sessionInfo,
+                            body: {
+                                provider: 'groq',
+                                model: CHAT_MODEL,
+                                messages: [
+                                    { role: 'system', content: descPrompt },
+                                    { role: 'user', content: `Character: ${name}, Age: ${targetAge}, Gender: ${gender}, Style: ${style}. Tags: ${tags.join(', ')}. Persona: ${persona}` }
+                                ],
+                                max_tokens: 350,
+                                temperature: 0.85
+                            }
+                        })
+                    };
                     if (descRes.ok) {
                         const descData = await descRes.json();
                         const descText = descData.choices?.[0]?.message?.content?.trim();
@@ -1790,6 +1854,7 @@ IMPORTANT RULES:
                             }
 
                             setIsGenerating(true);
+                            setCharCreationStage('creating');
                             try {
                                 const finalSelectedVoiceName = voiceName === 'Custom Voice' ? (customVoiceName || 'Custom') : voiceName;
                                 const finalSelectedVoiceId = voiceName === 'Custom Voice' ? customVoiceId : voiceId;
@@ -1831,20 +1896,22 @@ IMPORTANT RULES:
                                     try {
                                         console.log('[Create] Step 1: Groq persona...');
                                         const systemPrompt = `You are an expert character writer for an AI companion application. Turn the provided list of physical traits, background, and personality into a concise, engaging 20-30 word summary character persona. Describe their vibe, appearance, and how they interact. Keep it under 30 words. Do NOT chat. Do not include introductory text. Just return the short description text.`;
-                                        const groqRes = { ok: true, json: async () => backendJson('/api/ai/chat', {
-                                            method: 'POST',
-                                            sessionInfo,
-                                            body: {
-                                                provider: 'groq',
-                                                model: CHAT_MODEL,
-                                                messages: [
-                                                    { role: 'system', content: systemPrompt },
-                                                    { role: 'user', content: basePersonaStr }
-                                                ],
-                                                max_tokens: 400,
-                                                temperature: 0.8
-                                            }
-                                        }) };
+                                        const groqRes = {
+                                            ok: true, json: async () => backendJson('/api/ai/chat', {
+                                                method: 'POST',
+                                                sessionInfo,
+                                                body: {
+                                                    provider: 'groq',
+                                                    model: CHAT_MODEL,
+                                                    messages: [
+                                                        { role: 'system', content: systemPrompt },
+                                                        { role: 'user', content: basePersonaStr }
+                                                    ],
+                                                    max_tokens: 400,
+                                                    temperature: 0.8
+                                                }
+                                            })
+                                        };
                                         if (groqRes.ok) {
                                             const groqData = await groqRes.json();
                                             if (groqData.choices?.[0]?.message?.content) {
@@ -1858,8 +1925,6 @@ IMPORTANT RULES:
                                         console.warn('[Create] Step 1: Groq blocked/failed:', groqErr.message, '- using fallback.');
                                     }
                                 }
-
-                                setCharCreationStage('creating');
 
                                 // STEP 2: Generate public description (100-200 words, second-person, saves to DB permanently)
                                 let publicDescription = '';
@@ -1876,20 +1941,22 @@ IMPORTANT RULES:
 - Example style: "She is your devoted, obsessed wife who lives for every moment with you. You'll find her to be sweet yet quietly intense, always knowing what you need before you say a word..."
 - Keep it between 100-200 words. Return ONLY the description text, no quotes, no intro.`;
 
-                                        const descRes = { ok: true, json: async () => backendJson('/api/ai/chat', {
-                                            method: 'POST',
-                                            sessionInfo,
-                                            body: {
-                                                provider: 'groq',
-                                                model: CHAT_MODEL,
-                                                messages: [
-                                                    { role: 'system', content: descPrompt },
-                                                    { role: 'user', content: `Character: ${charName}, Age: ${charAge}, Gender: ${gender}, Appearance: ${ethnicity} ${bodyType} ${hairColor} ${hairStyle} hair, ${eyeColor} eyes. Personality: ${personality}, Occupation: ${occupation || 'none'}, Relationship: ${relationship || 'none'}, Hobby: ${hobby || 'none'}, Voice: ${finalSelectedVoiceName}. Persona summary: ${finalPersona}` }
-                                                ],
-                                                max_tokens: 350,
-                                                temperature: 0.85
-                                            }
-                                        }) };
+                                        const descRes = {
+                                            ok: true, json: async () => backendJson('/api/ai/chat', {
+                                                method: 'POST',
+                                                sessionInfo,
+                                                body: {
+                                                    provider: 'groq',
+                                                    model: CHAT_MODEL,
+                                                    messages: [
+                                                        { role: 'system', content: descPrompt },
+                                                        { role: 'user', content: `Character: ${charName}, Age: ${charAge}, Gender: ${gender}, Appearance: ${ethnicity} ${bodyType} ${hairColor} ${hairStyle} hair, ${eyeColor} eyes. Personality: ${personality}, Occupation: ${occupation || 'none'}, Relationship: ${relationship || 'none'}, Hobby: ${hobby || 'none'}, Voice: ${finalSelectedVoiceName}. Persona summary: ${finalPersona}` }
+                                                    ],
+                                                    max_tokens: 350,
+                                                    temperature: 0.85
+                                                }
+                                            })
+                                        };
                                         if (descRes.ok) {
                                             const descData = await descRes.json();
                                             const descText = descData.choices?.[0]?.message?.content?.trim();
@@ -1905,21 +1972,65 @@ IMPORTANT RULES:
                                     }
                                 }
 
-                                // STEP 3: Image search (optional, never fatal)
+                                // STEP 3: Image generation (optional, never fatal)
                                 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
-                                let bestImage = FALLBACK_IMG;
+                                let bestImage = null;
                                 try {
-                                    const searchTags = buildCharacterTags({
-                                        gender, style, ethnicity,
-                                        skinTone, eyeColor, hairColor, hairStyle,
-                                        bodyType, breastSize, buttSize,
-                                        personality, occupation, relationship,
-                                        fetish, hobby, voice: finalSelectedVoiceName
-                                    });
-                                    bestImage = await findBestMatchingImage(searchTags, FALLBACK_IMG);
-                                    console.log('[Create] Step 3 OK:', bestImage);
+                                    if (hasBackend) {
+                                        const isRealistic = style === 'Realistic';
+                                        const imageModel = isRealistic ? 'flux-2-dev' : 'wavespeed-ai/chroma';
+
+                                        const qualityPrefix = isRealistic
+                                            ? 'Photorealistic portrait of a character, seductive theme, casual portrait, natural skin texture, soft flattering lighting, shallow depth of field, ultra-detailed, high resolution'
+                                            : 'Masterpiece, best quality, high-quality anime illustration, vibrant colors, detailed shading, beautiful lighting, trending on Pixiv';
+
+                                        const environmentHint = isRealistic
+                                            ? 'background and facial expression matching the character personality, natural relaxed pose, intimate casual setting, warm ambient lighting'
+                                            : 'beautifully detailed anime background, soft pastel tones, atmospheric lighting';
+
+                                        const bodyDesc = `${bodyType} figure, ${skinTone} skin${['Female', 'Trans'].includes(gender) ? `, ${breastSize} breasts` : ''}, ${buttSize} butt`;
+                                        const imagePrompt = `${qualityPrefix}, ${charAge} year old ${gender}, ${ethnicity} descent, ${eyeColor} eyes, ${hairColor} ${hairStyle} hair, ${bodyDesc}, ${personality} personality, ${occupation}, ${hobby} enthusiast, ${finalPersona}, ${environmentHint}`;
+
+                                        console.log('[Create/Manual] Image prompt:', imagePrompt);
+                                        console.log('[Create/Manual] Using model:', imageModel);
+
+                                        const imgData = await backendJson('/api/images/generate', {
+                                            method: 'POST',
+                                            sessionInfo,
+                                            body: {
+                                                prompt: imagePrompt,
+                                                width: 768,
+                                                height: 1024,
+                                                count: 1,
+                                                model: imageModel
+                                            }
+                                        });
+                                        if (imgData && imgData.urls && imgData.urls.length > 0) {
+                                            bestImage = imgData.urls[0];
+                                            console.log('[Create/Manual] ✅ Image generated:', bestImage);
+                                        } else {
+                                            console.error('[Create/Manual] ❌ No URLs in response. Full response:', JSON.stringify(imgData));
+                                        }
+                                    }
                                 } catch (imgErr) {
-                                    console.warn('[Create] Step 3: Image search failed:', imgErr.message, '- using fallback.');
+                                    console.warn('[Create] Step 3: Image generation failed:', imgErr.message, '- using fallback.');
+                                }
+
+                                if (!bestImage) {
+                                    try {
+                                        const searchTags = buildCharacterTags({
+                                            gender, style, ethnicity,
+                                            skinTone, eyeColor, hairColor, hairStyle,
+                                            bodyType, breastSize, buttSize,
+                                            personality, occupation, relationship,
+                                            fetish, hobby, voice: finalSelectedVoiceName
+                                        });
+                                        bestImage = await findBestMatchingImage(searchTags, FALLBACK_IMG);
+                                        console.log('[Create] Step 3 OK (Cloudinary Fallback):', bestImage);
+                                    } catch (fallbackErr) {
+                                        console.warn('[Create] Step 3: Cloudinary search failed:', fallbackErr.message, '- using static fallback.');
+                                        bestImage = FALLBACK_IMG;
+                                    }
                                 }
 
                                 // STEP 4: Supabase insert (critical — if this fails we surface the exact error)

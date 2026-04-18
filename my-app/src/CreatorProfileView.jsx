@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { ArrowLeft, UserPlus, Crown, Activity, Check, Heart, Star } from 'lucide-react';
+import { ArrowLeft, UserPlus, Crown, Activity, Check, Heart, Star, Zap, X, AlertTriangle } from 'lucide-react';
 import CharacterCard from './CharacterCard';
 
 // Defined at module level so it is always available before any async calls use it
@@ -13,7 +13,7 @@ function formatCount(num) {
     return Math.floor(n).toString();
 }
 
-export default function CreatorProfileView({ creatorUsername, onBack, onCharacterClick, currentUser, onLike, onFollowChange, likedIds = new Set() }) {
+export default function CreatorProfileView({ creatorUsername, onBack, onCharacterClick, currentUser, onLike, onFollowChange, likedIds = new Set(), coinBalance = 0, onBurnCoin, onRequireUpgrade }) {
     const [creator, setCreator] = useState(null);
     const [characters, setCharacters] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -26,6 +26,11 @@ export default function CreatorProfileView({ creatorUsername, onBack, onCharacte
         totalChars: 0,
     });
     const [error, setError] = useState(null);
+
+    const [showDonateModal, setShowDonateModal] = useState(false);
+    const [donateAmount, setDonateAmount] = useState(10);
+    const [donateStatus, setDonateStatus] = useState('idle'); // idle, loading, success, error
+    const [donateError, setDonateError] = useState('');
 
     useEffect(() => {
         if (creatorUsername) {
@@ -326,9 +331,8 @@ export default function CreatorProfileView({ creatorUsername, onBack, onCharacte
                         </div>
                     </div>
 
-                    {/* Follow Button */}
-                    {/* ✅ FIX 2: Correct "This is you" vs Follow logic */}
-                    <div className="z-10 pb-2">
+                    {/* Follow and Donate Buttons */}
+                    <div className="z-10 pb-2 flex items-center gap-3">
                         {currentUser && creator.uuid && currentUser.id === creator.uuid ? (
                             // Viewing your own profile
                             <div className="px-6 py-3 bg-gray-800 text-gray-400 rounded-xl font-semibold border border-gray-700">
@@ -336,25 +340,37 @@ export default function CreatorProfileView({ creatorUsername, onBack, onCharacte
                             </div>
                         ) : (
                             // Viewing someone else's profile (or not logged in)
-                            <button
-                                onClick={handleFollow}
-                                disabled={followLoading || !currentUser || !creator.uuid}
-                                title={!currentUser ? 'Sign in to follow' : !creator.uuid ? 'Cannot follow this user' : ''}
-                                className={`flex items-center gap-2 px-8 py-3 rounded-xl font-bold transition-all duration-300 shadow-lg
-                                    ${isFollowing
-                                        ? 'bg-gray-800 text-white border border-gray-700 hover:bg-gray-700'
-                                        : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:shadow-purple-500/30 hover:scale-105 active:scale-95'
-                                    }
-                                    ${(followLoading || !currentUser || !creator.uuid) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                                {followLoading ? (
-                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : isFollowing ? (
-                                    <><Check size={18} /> Following</>
-                                ) : (
-                                    <><UserPlus size={18} /> Follow</>
-                                )}
-                            </button>
+                            <>
+                                <button
+                                    onClick={handleFollow}
+                                    disabled={followLoading || !currentUser || !creator.uuid}
+                                    title={!currentUser ? 'Sign in to follow' : !creator.uuid ? 'Cannot follow this user' : ''}
+                                    className={`flex items-center gap-2 px-8 py-3 rounded-xl font-bold transition-all duration-300 shadow-lg
+                                        ${isFollowing
+                                            ? 'bg-gray-800 text-white border border-gray-700 hover:bg-gray-700'
+                                            : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:shadow-purple-500/30 hover:scale-[1.02] active:scale-95'
+                                        }
+                                        ${(followLoading || !currentUser || !creator.uuid) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    {followLoading ? (
+                                        <div className="w-5 h-5 border-2 border-inherit border-t-transparent rounded-full animate-spin" />
+                                    ) : isFollowing ? (
+                                        <><Check size={18} /> Following</>
+                                    ) : (
+                                        <><UserPlus size={18} /> Follow</>
+                                    )}
+                                </button>
+
+                                <button
+                                    onClick={() => setShowDonateModal(true)}
+                                    disabled={!currentUser || !creator.uuid}
+                                    title={!currentUser ? 'Sign in to donate' : 'Donate Bolt Tokens'}
+                                    className="flex items-center gap-1.5 px-3 sm:px-6 py-3 rounded-xl font-bold transition-all duration-300 shadow-lg bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 hover:scale-[1.02] active:scale-95"
+                                >
+                                    <Zap size={18} className="fill-purple-500/50" />
+                                    <span>Donate</span>
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -388,6 +404,155 @@ export default function CreatorProfileView({ creatorUsername, onBack, onCharacte
                     )}
                 </div>
             </div>
+
+            {/* Donate Modal */}
+            {showDonateModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => { if (donateStatus !== 'loading') { setShowDonateModal(false); setDonateStatus('idle'); } }} />
+                    <div className="relative w-full max-w-sm bg-gray-950 border border-purple-500/20 rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                        <button
+                            onClick={() => { setShowDonateModal(false); setDonateStatus('idle'); }}
+                            disabled={donateStatus === 'loading'}
+                            className="absolute top-4 right-4 p-1 rounded-full bg-gray-900 border border-gray-800 text-gray-400 hover:text-white"
+                        >
+                            <X size={16} />
+                        </button>
+
+                        <div className="text-center mb-6">
+                            <div className="w-14 h-14 mx-auto mb-4 bg-purple-500/10 rounded-full border border-purple-500/30 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+                                <Zap size={28} className="text-purple-400 fill-purple-400/50" />
+                            </div>
+                            <h3 className="text-xl font-black text-white mb-1">Donate to {creator.username}</h3>
+                            <p className="text-xs text-gray-400 mb-6">Support this creator by sending them Bolt Tokens.</p>
+
+                            {donateStatus === 'success' ? (
+                                <div className="py-6 px-4 bg-green-500/10 border border-green-500/20 rounded-2xl flex flex-col items-center">
+                                    <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center mb-3">
+                                        <Check size={20} className="text-white" />
+                                    </div>
+                                    <p className="text-green-400 font-bold mb-1">Donation Successful!</p>
+                                    <p className="text-xs text-green-400/70">Thank you for supporting {creator.username}.</p>
+                                    <button
+                                        onClick={() => { setShowDonateModal(false); setDonateStatus('idle'); }}
+                                        className="mt-5 w-full py-2.5 rounded-xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition-colors"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            ) : donateStatus === 'error' ? (
+                                <div className="py-5 px-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex flex-col items-center">
+                                    <AlertTriangle size={24} className="text-red-400 mb-2" />
+                                    <p className="text-red-400 font-bold mb-1 text-sm">Insufficient Tokens</p>
+                                    <p className="text-xs text-red-400/70 mb-5">{donateError || "You don't have enough Bolt Tokens."}</p>
+                                    <button
+                                        onClick={() => {
+                                            setShowDonateModal(false);
+                                            setDonateStatus('idle');
+                                            if (onRequireUpgrade) onRequireUpgrade();
+                                        }}
+                                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold tracking-wide shadow-lg hover:shadow-orange-500/30 active:scale-95 transition-all text-sm flex items-center justify-center gap-2"
+                                    >
+                                        <Crown size={16} className="fill-white/20" /> Get More Tokens
+                                    </button>
+                                </div>
+                            ) : donateStatus === 'confirm' ? (
+                                <div className="py-5 px-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl flex flex-col items-center">
+                                    <p className="text-white font-bold mb-2">Confirm Donation</p>
+                                    <p className="text-sm text-gray-300 mb-6 text-center leading-relaxed">
+                                        Are you sure you want to send <strong className="text-purple-400">{donateAmount} Bolt{donateAmount !== 1 ? 's' : ''}</strong> to <strong className="text-white">@{creator.username}</strong>?
+                                    </p>
+                                    <div className="flex w-full gap-3">
+                                        <button
+                                            onClick={() => setDonateStatus('idle')}
+                                            className="flex-1 py-3 rounded-xl bg-gray-800 text-gray-300 font-bold hover:bg-gray-700 transition-colors text-sm"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                setDonateStatus('loading');
+                                                try {
+                                                    // 1. Perform secure transfer via RPC
+                                                    if (creator.uuid) {
+                                                        const { error: rpcError } = await supabase.rpc('transfer_bolt_tokens', {
+                                                            receiver_uuid: creator.uuid,
+                                                            amount: donateAmount
+                                                        });
+                                                        if (rpcError) throw new Error(rpcError.message || 'Transfer failed on server.');
+                                                    }
+
+                                                    // 2. Local UI Deduction (Updates your balance instantly in UI view)
+                                                    if (onBurnCoin) {
+                                                        await onBurnCoin(donateAmount);
+                                                    }
+
+                                                    setDonateStatus('success');
+                                                } catch (e) {
+                                                    setDonateError(e.message || 'An error occurred during transaction.');
+                                                    setDonateStatus('error');
+                                                }
+                                            }}
+                                            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold shadow-lg hover:shadow-purple-500/30 active:scale-95 transition-all text-sm"
+                                        >
+                                            Confirm Send
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex gap-2 mb-4">
+                                        {[10, 50, 100].map(amount => (
+                                            <button
+                                                key={amount}
+                                                onClick={() => setDonateAmount(amount)}
+                                                className={`flex-1 py-3 rounded-2xl font-bold flex flex-col items-center justify-center gap-1 transition-all
+                                                    ${donateAmount === amount
+                                                        ? 'bg-purple-500/20 border-2 border-purple-500 text-purple-400'
+                                                        : 'bg-gray-900 border-2 border-gray-800 text-gray-500 hover:border-gray-700'}`}
+                                            >
+                                                <Zap size={14} className={donateAmount === amount ? 'fill-purple-500/50 text-purple-400' : 'text-gray-600'} />
+                                                <span>{amount}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="mb-6 relative">
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                            <Zap size={16} className="text-gray-500 fill-gray-500/20" />
+                                        </div>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={donateAmount || ''}
+                                            onChange={(e) => setDonateAmount(parseInt(e.target.value) || 0)}
+                                            className="w-full bg-gray-900 border border-gray-800 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl py-3 pl-10 pr-4 text-white font-bold placeholder-gray-600 outline-none transition-all"
+                                            placeholder="Custom amount..."
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            if (coinBalance < donateAmount) {
+                                                setDonateError(`You need ${donateAmount} tokens, but you only have ${coinBalance}.`);
+                                                setDonateStatus('error');
+                                            } else {
+                                                setDonateStatus('confirm'); // Move to confirmation step instead of sending right away
+                                            }
+                                        }}
+                                        disabled={donateStatus === 'loading' || !donateAmount || donateAmount < 1}
+                                        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold shadow-[0_0_15px_rgba(168,85,247,0.3)] hover:shadow-[0_0_25px_rgba(168,85,247,0.5)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {donateStatus === 'loading' ? (
+                                            <div className="w-5 h-5 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                            <>Proceed with {donateAmount} Bolts <Zap size={16} className="fill-white/30" /></>
+                                        )}
+                                    </button>
+                                    <p className="mt-4 text-[10px] text-gray-500 text-center font-medium">Your current balance: {coinBalance} Bolt{coinBalance !== 1 ? 's' : ''}</p>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

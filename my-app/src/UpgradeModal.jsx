@@ -19,12 +19,15 @@ import { backendJson, hasBackend } from './backendApi';
 
 // ── Premium benefits ──────────────────────────────────────────────────────────
 const BENEFITS = [
-    { icon: '∞', title: 'Infinite Messages', desc: 'Chat endlessly without burning Bolt Coins.' },
-    { icon: '🎭', title: 'Free Character Gen', desc: 'Create unlimited AI characters (normally 5 coins).' },
-    { icon: '⚡', title: 'Priority AI Speed', desc: 'Skip queues — faster responses at peak hours.' },
-    { icon: '🎙️', title: 'Premium Voice Access', desc: 'Ultra-realistic voice models for immersive chats.' },
-    { icon: '🔓', title: 'NSFW Content Unlocked', desc: 'Enable mature content with a simple toggle.' },
-    { icon: '⭐', title: 'Premium Badge', desc: 'Gold verified badge on your public profile.' },
+    { title: 'Unlimited Messages', desc: 'Up to 5,000 messages per month.' },
+    { title: '100 Image Generations', desc: 'High-quality AI image creation.' },
+    { title: 'Video Generation', desc: 'Text-to-Video and Image-to-Video (10/mo).' },
+    { title: 'Expanded Characters', desc: 'Create more characters with privacy controls.' },
+    { title: 'Leaderboard Access', desc: 'Push generated characters to the public ranking.' },
+    { title: '1,000 Bonus Tokens', desc: 'Added instantly to your account balance.' },
+    { title: 'Voice Features', desc: 'Listen to messages & customize character voices.' },
+    { title: 'NSFW Access', desc: 'Unrestricted generations without safety filters.' },
+    { title: 'Priority Queue', desc: 'Faster generation times during peak hours.' },
 ];
 
 // ── Coin packs ────────────────────────────────────────────────────────────────
@@ -68,36 +71,23 @@ export default function UpgradeModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={onClose} />
 
             <div
-                className="relative w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col"
+                className="relative w-full max-w-2xl bg-gray-950 border border-gray-800 rounded-2xl shadow-xl overflow-hidden flex flex-col"
                 style={{ maxHeight: '92vh' }}
             >
-                <style>{`
-                    @keyframes upgradeIn { from{opacity:0;transform:scale(0.95) translateY(20px)} to{opacity:1;transform:scale(1) translateY(0)} }
-                    .animate-upgrade { animation: upgradeIn 0.4s cubic-bezier(0.2, 0, 0.2, 1) forwards; }
-                    @keyframes glow-pulse { 0%,100%{box-shadow:0 0 20px rgba(147,51,234,.15)} 50%{box-shadow:0 0 45px rgba(168,85,247,.45)} }
-                    @keyframes spin-slow  { to{transform:rotate(360deg)} }
-                    .spin-slow { animation:spin-slow 3s linear infinite; }
-                    @keyframes sh { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
-                    .shimmer-btn {
-                        background:linear-gradient(90deg,transparent 25%,rgba(255,255,255,.07) 50%,transparent 75%);
-                        background-size:200% 100%; animation:sh 2.5s infinite;
-                    }
-                `}</style>
-
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 bg-gray-900 flex-shrink-0">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                            <Crown size={24} className="text-amber-500" />
+                        <div className="w-10 h-10 rounded-full bg-purple-900/40 border border-purple-500/20 flex items-center justify-center">
+                            <Zap size={20} className="text-purple-500" />
                         </div>
                         <div>
-                            <h2 className="text-white font-bold text-xl">DreamAI Premium</h2>
+                            <h2 className="text-white font-bold text-xl tracking-tight">DreamAI Premium</h2>
                             <p className="text-xs text-gray-500 mt-0.5">
-                                Current: <span className="text-amber-400 font-semibold">{isPremium ? 'Lifetime Pro' : `${coinBalance} Coins`}</span>
+                                Current Status: <span className="text-purple-400 font-semibold">{isPremium ? 'Lifetime Pro' : `${coinBalance} Coins`}</span>
                             </p>
                         </div>
                     </div>
@@ -109,28 +99,9 @@ export default function UpgradeModal({
                     </button>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex border-b border-gray-800 bg-gray-900 flex-shrink-0">
-                    {[
-                        { id: 'premium', icon: Crown, label: 'DreamAI Premium', ac: 'border-amber-500 text-amber-400 bg-amber-500/5' },
-                        { id: 'coins', icon: Zap, label: 'Buy Bolt Coins', ac: 'border-purple-500 text-purple-400 bg-purple-500/5' },
-                    ].map(t => (
-                        <button
-                            key={t.id}
-                            onClick={() => setActiveTab(t.id)}
-                            className={`flex-1 py-3.5 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 ${activeTab === t.id ? t.ac : 'border-transparent text-gray-500 hover:text-gray-300'}`}
-                        >
-                            <t.icon size={14} />{t.label}
-                        </button>
-                    ))}
-                </div>
-
                 {/* Body */}
-                <div className="overflow-y-auto flex-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4c1d95 transparent' }}>
-                    {activeTab === 'premium'
-                        ? <PremiumTab userUuid={userUuid} sessionInfo={sessionInfo} onPremiumGranted={onPremiumGranted} onClose={onClose} coinBalance={coinBalance} isPremium={isPremium} />
-                        : <CoinsTab userUuid={userUuid} sessionInfo={sessionInfo} onCoinsAdded={onCoinsAdded} onClose={onClose} coinBalance={coinBalance} />
-                    }
+                <div className="overflow-y-auto flex-1 bg-gray-950" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4c1d95 transparent' }}>
+                    <PremiumTab userUuid={userUuid} sessionInfo={sessionInfo} onPremiumGranted={onPremiumGranted} onClose={onClose} coinBalance={coinBalance} isPremium={isPremium} />
                 </div>
             </div>
         </div>
@@ -181,6 +152,41 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
         if (solUsdPrice && payMethod === 'solana') setRequiredSol(calcSolAmount(selectedPlan, solUsdPrice));
     }, [selectedPlan, solUsdPrice, payMethod]);
 
+    const handleSuccess = useCallback(async (r) => {
+        setPayStatus('success'); setTxSig(r.signature); cancelRef.current = null;
+        try {
+            if (hasBackend) {
+                await backendJson('/api/payments/solana/confirm', {
+                    method: 'POST',
+                    sessionInfo,
+                    body: {
+                        kind: 'premium',
+                        plan: selectedPlan,
+                        signature: r.signature,
+                        requiredSol,
+                        solAddress,
+                    }
+                });
+            } else {
+                const expires = selectedPlan === 'yearly'
+                    ? new Date(Date.now() + 365 * 86400_000).toISOString()
+                    : selectedPlan === 'quarterly'
+                        ? new Date(Date.now() + 90 * 86400_000).toISOString()
+                        : new Date(Date.now() + 30 * 86400_000).toISOString();
+                await supabase.from('users').update({
+                    is_premium: true, premium_plan: selectedPlan,
+                    premium_expires_at: expires, premium_tx: r.signature,
+                    coin_balance: 99999,
+                }).eq('uuid', userUuid);
+                await supabase.from('payment_logs').insert({
+                    user_uuid: userUuid, plan: selectedPlan,
+                    amount_sol: r.amount, tx_signature: r.signature, sol_address: solAddress,
+                });
+            }
+            if (onPremiumGranted) onPremiumGranted({ plan: selectedPlan, txSig: r.signature });
+        } catch (e) { console.error('[Premium] grant error', e); }
+    }, [selectedPlan, requiredSol, solAddress, userUuid, sessionInfo, onPremiumGranted]);
+
     const startWatch = useCallback(() => {
         if (!solAddress || !requiredSol) return;
         if (cancelRef.current) cancelRef.current();
@@ -188,77 +194,84 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
 
         cancelRef.current = pollForPayment(solAddress, requiredSol, {
             onTick: (a, m) => { setPollAttempt(a); setPollMax(m); setPayStatus('checking'); },
-            onPaid: async (r) => {
-                setPayStatus('success'); setTxSig(r.signature); cancelRef.current = null;
-                try {
-                    if (hasBackend) {
-                        await backendJson('/api/payments/solana/confirm', {
-                            method: 'POST',
-                            sessionInfo,
-                            body: {
-                                kind: 'premium',
-                                plan: selectedPlan,
-                                signature: r.signature,
-                                requiredSol,
-                                solAddress,
-                            }
-                        });
-                    } else {
-                        const expires = selectedPlan === 'yearly'
-                            ? new Date(Date.now() + 365 * 86400_000).toISOString()
-                            : new Date(Date.now() + 30 * 86400_000).toISOString();
-                        await supabase.from('users').update({
-                            is_premium: true, premium_plan: selectedPlan,
-                            premium_expires_at: expires, premium_tx: r.signature,
-                            coin_balance: 99999,
-                        }).eq('uuid', userUuid);
-                        await supabase.from('payment_logs').insert({
-                            user_uuid: userUuid, plan: selectedPlan,
-                            amount_sol: r.amount, tx_signature: r.signature, sol_address: solAddress,
-                        });
-                    }
-                    if (onPremiumGranted) onPremiumGranted({ plan: selectedPlan, txSig: r.signature });
-                } catch (e) { console.error('[Premium] grant error', e); }
-            },
+            onPaid: handleSuccess,
             onError: e => console.error('[Solana]', e),
         });
-    }, [solAddress, requiredSol, selectedPlan, userUuid, sessionInfo, onPremiumGranted]);
+    }, [solAddress, requiredSol, handleSuccess]);
+
+    const simulateWatch = useCallback(() => {
+        if (!solAddress || !requiredSol) return;
+        handleSuccess({ signature: 'dev_test_' + Date.now(), amount: requiredSol });
+    }, [solAddress, requiredSol, handleSuccess]);
 
     const changePlan = (p) => { setSelectedPlan(p); reset(); };
 
     if (payStatus === 'success') return (
         <div className="p-5">
             <SuccessPanel
-                title="Welcome to Premium! 🎉"
-                subtitle={`Your ${selectedPlan === 'yearly' ? 'Yearly' : 'Monthly'} subscription is now active.`}
+                title="Subscribed to Premium"
+                subtitle={`Your ${selectedPlan === 'yearly' ? 'Yearly' : selectedPlan === 'quarterly' ? '3-Month' : 'Monthly'} subscription is now active.`}
                 txSig={txSig}
-                perks={['∞ Messages', '⭐ Badge', '🔓 NSFW']}
-                ctaLabel="Start Exploring Premium"
+                detailedPerks={BENEFITS}
+                perkColor="purple"
+                ctaLabel="Explore Premium!"
                 onClose={onClose}
             />
         </div>
     );
 
+    if (isPremium && payStatus !== 'success') {
+        const expiresIn = sessionInfo?.user?.user_metadata?.premium_expires_at || "30 Days"; // Fallback or dynamic
+        return (
+            <div className="p-6">
+                <div className="bg-gray-900 border border-purple-500/20 rounded-2xl p-6 text-center space-y-4 shadow-xl">
+                    <Crown size={44} className="text-purple-400 mx-auto" />
+                    <h3 className="text-2xl font-black text-white">My Plan</h3>
+
+                    <div className="flex justify-center items-center gap-2 mt-2">
+                        <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 uppercase tracking-wide">
+                            <CheckCircle2 size={14} /> Active Status
+                        </span>
+                        <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-full text-xs font-bold">
+                            Expires in: {expiresIn}
+                        </span>
+                    </div>
+
+                    <div className="mt-6 text-left bg-gray-950/80 p-5 rounded-xl border border-gray-800">
+                        <h4 className="text-gray-300 font-bold mb-3 flex items-center gap-2"><Sparkles size={16} className="text-purple-400" /> Subscription & Return Policy</h4>
+                        <div className="text-gray-400 text-xs space-y-3 leading-relaxed">
+                            <p><strong>Subscription Basic Policy:</strong> Your plan renews automatically at the end of each billing cycle. You may cancel anytime from your account settings to stop future billing, and you will retain access to premium features until the end of your current cycle.</p>
+                            <p><strong>Same-Day Refund Policy:</strong> Complete satisfaction is our priority. If you request a cancellation within exactly <strong>24 hours (1 Day)</strong> of your initial purchase, you are eligible for a full 100% refund. Renewals are not eligible for refunds.</p>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-gray-800/80 flex items-center gap-2">
+                            <span className="text-gray-500 text-xs font-bold uppercase tracking-wide">Premium Support:</span>
+                            <a href="mailto:dreamaistudio02@gmail.com" className="text-purple-400 text-xs font-semibold hover:text-purple-300">dreamaistudio02@gmail.com</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="p-5 space-y-5">
             <PlanSelector selectedPlan={selectedPlan} setSelectedPlan={changePlan} />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {BENEFITS.map(b => (
-                    <div key={b.title} className="flex items-start gap-3 bg-gray-900/50 border border-gray-800/60 rounded-xl p-3.5 hover:border-purple-500/30 transition-colors group">
-                        <span className="text-xl flex-shrink-0">{b.icon}</span>
-                        <div>
-                            <p className="text-white text-sm font-bold">{b.title}</p>
-                            <p className="text-gray-500 text-xs mt-0.5">{b.desc}</p>
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+                <p className="text-white font-bold text-sm mb-3">Premium Plan Includes:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+                    {BENEFITS.map(b => (
+                        <div key={b.title} className="flex items-start gap-2">
+                            <Check size={14} className="text-purple-500 flex-shrink-0 mt-0.5" />
+                            <p className="text-gray-300 text-sm font-medium leading-snug">{b.title}</p>
                         </div>
-                        <BadgeCheck size={14} className="text-amber-400/50 ml-auto mt-0.5 group-hover:text-amber-400 transition-colors flex-shrink-0" />
-                    </div>
-                ))}
+                    ))}
+                </div>
             </div>
 
             {payMethod === '' && (
                 <PaymentPicker
-                    label={selectedPlan === 'monthly' ? '$4.99 / month' : '$39.99 / year'}
+                    label={selectedPlan === 'monthly' ? '$8.00 / month' : selectedPlan === 'quarterly' ? '$20.00 / 3 months' : '$60.00 / year'}
                     usdPrice={PLANS[selectedPlan]?.usd}
                     requiredSol={requiredSol}
                     priceLoading={priceLoading}
@@ -266,7 +279,7 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
                     onSelect={setPayMethod}
                 />
             )}
-            {payMethod === 'stripe' && <StripePanel price={selectedPlan === 'monthly' ? '$4.99/month' : '$39.99/year'} onBack={reset} />}
+            {payMethod === 'stripe' && <StripePanel price={selectedPlan === 'monthly' ? '$8.00/mo' : selectedPlan === 'quarterly' ? '$20.00/3mo' : '$60.00/yr'} onBack={reset} />}
             {payMethod === 'solana' && (
                 <SolanaPayPanel
                     solAddress={solAddress} addrLoading={addrLoading}
@@ -274,8 +287,8 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
                     requiredSol={requiredSol}
                     addrCopied={addrCopied} copyAddr={copyAddr}
                     payStatus={payStatus} pollAttempt={pollAttempt} pollMax={pollMax}
-                    onStartWatch={startWatch} onBack={reset}
-                    badge={selectedPlan === 'monthly' ? 'Monthly' : 'Yearly · 33% OFF'}
+                    onStartWatch={startWatch} onSimulate={simulateWatch} onBack={reset}
+                    badge={selectedPlan === 'monthly' ? 'Monthly' : selectedPlan === 'quarterly' ? 'Quarterly' : 'Yearly · 38% OFF'}
                     usdLabel={`$${PLANS[selectedPlan]?.usd}`}
                     instructions={[
                         'Open any Solana wallet (Phantom, Solflare, etc.)',
@@ -334,6 +347,43 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
         }).catch(() => setPriceLoading(false));
     }, [payMethod, userUuid, selectedPack?.id]);       // eslint-disable-line
 
+    const handleSuccess = useCallback(async (r) => {
+        setPayStatus('success'); setTxSig(r.signature); cancelRef.current = null;
+        try {
+            const totalCoins = selectedPack.coins + selectedPack.bonus;
+            const newBalance = (coinBalance || 0) + totalCoins;
+
+            if (hasBackend) {
+                const result = await backendJson('/api/payments/solana/confirm', {
+                    method: 'POST',
+                    sessionInfo,
+                    body: {
+                        kind: 'coins',
+                        signature: r.signature,
+                        requiredSol,
+                        solAddress,
+                        pack: selectedPack,
+                    }
+                });
+                if (onCoinsAdded) onCoinsAdded(result?.coin_balance ?? newBalance);
+            } else {
+                await supabase.from('users').update({
+                    coin_balance: newBalance,
+                }).eq('uuid', userUuid);
+
+                await supabase.from('payment_logs').insert({
+                    user_uuid: userUuid,
+                    plan: `coins_${selectedPack.id}`,
+                    amount_sol: r.amount,
+                    tx_signature: r.signature,
+                    sol_address: solAddress,
+                });
+
+                if (onCoinsAdded) onCoinsAdded(newBalance);
+            }
+        } catch (e) { console.error('[Coins] credit error', e); }
+    }, [selectedPack, coinBalance, requiredSol, solAddress, userUuid, sessionInfo, onCoinsAdded]);
+
     const startWatch = useCallback(() => {
         if (!solAddress || !requiredSol || !selectedPack) return;
         if (cancelRef.current) cancelRef.current();
@@ -341,45 +391,15 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
 
         cancelRef.current = pollForPayment(solAddress, requiredSol, {
             onTick: (a, m) => { setPollAttempt(a); setPollMax(m); setPayStatus('checking'); },
-            onPaid: async (r) => {
-                setPayStatus('success'); setTxSig(r.signature); cancelRef.current = null;
-                try {
-                    const totalCoins = selectedPack.coins + selectedPack.bonus;
-                    const newBalance = (coinBalance || 0) + totalCoins;
-
-                    if (hasBackend) {
-                        const result = await backendJson('/api/payments/solana/confirm', {
-                            method: 'POST',
-                            sessionInfo,
-                            body: {
-                                kind: 'coins',
-                                signature: r.signature,
-                                requiredSol,
-                                solAddress,
-                                pack: selectedPack,
-                            }
-                        });
-                        if (onCoinsAdded) onCoinsAdded(result?.coin_balance ?? newBalance);
-                    } else {
-                        await supabase.from('users').update({
-                            coin_balance: newBalance,
-                        }).eq('uuid', userUuid);
-
-                        await supabase.from('payment_logs').insert({
-                            user_uuid: userUuid,
-                            plan: `coins_${selectedPack.id}`,
-                            amount_sol: r.amount,
-                            tx_signature: r.signature,
-                            sol_address: solAddress,
-                        });
-
-                        if (onCoinsAdded) onCoinsAdded(newBalance);
-                    }
-                } catch (e) { console.error('[Coins] credit error', e); }
-            },
+            onPaid: handleSuccess,
             onError: e => console.error('[Solana]', e),
         });
-    }, [solAddress, requiredSol, selectedPack, userUuid, coinBalance, sessionInfo, onCoinsAdded]);
+    }, [solAddress, requiredSol, selectedPack, handleSuccess]);
+
+    const simulateWatch = useCallback(() => {
+        if (!solAddress || !requiredSol || !selectedPack) return;
+        handleSuccess({ signature: 'dev_test_' + Date.now(), amount: requiredSol });
+    }, [solAddress, requiredSol, selectedPack, handleSuccess]);
 
     if (payStatus === 'success' && selectedPack) return (
         <div className="p-5">
@@ -517,7 +537,7 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
                         requiredSol={requiredSol}
                         addrCopied={addrCopied} copyAddr={copyAddr}
                         payStatus={payStatus} pollAttempt={pollAttempt} pollMax={pollMax}
-                        onStartWatch={startWatch} onBack={reset}
+                        onStartWatch={startWatch} onSimulate={simulateWatch} onBack={reset}
                         badge="One-Time Purchase"
                         usdLabel={`$${selectedPack.price.toFixed(2)}`}
                         instructions={[
@@ -536,40 +556,44 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
 // SHARED SUB-COMPONENTS
 // ══════════════════════════════════════════════════════════════════════════════
 
-// ─── Plan Selector (Premium only) ────────────────────────────────────────────
 function PlanSelector({ selectedPlan, setSelectedPlan }) {
+    const plans = [
+        { id: 'monthly', title: 'Monthly', price: '$8', sub: 'Billed monthly' },
+        { id: 'quarterly', title: '3 Months', price: '$20', sub: 'Billed quarterly' },
+        { id: 'yearly', title: 'Yearly', price: '$60', sub: 'Billed yearly', badge: 'Save 38%' },
+    ];
+
     return (
-        <div className="grid grid-cols-2 gap-3">
-            {[
-                { id: 'monthly', price: '$4', cents: '.99', per: '/mo', sub: 'Billed every month', border: 'purple', active: selectedPlan === 'monthly' },
-                { id: 'yearly', price: '$39', cents: '.99', per: '/yr', sub: '≈ $3.33/mo · Best value', border: 'amber', active: selectedPlan === 'yearly', badge: 'Save 33%', subColor: 'text-amber-400/70' },
-            ].map(p => (
-                <button
-                    key={p.id}
-                    onClick={() => setSelectedPlan(p.id)}
-                    className={`relative p-4 rounded-2xl border-2 text-left transition-all duration-300 active:scale-95 ${p.active
-                        ? `border-${p.border}-500 bg-${p.border}-900/20 shadow-[0_0_22px_rgba(147,51,234,0.2)]`
-                        : 'border-gray-700/60 bg-gray-900/40 hover:border-gray-600'}`}
-                >
-                    {p.badge && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-black px-3 py-0.5 rounded-full uppercase tracking-wider shadow">
-                            {p.badge}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {plans.map(p => {
+                const active = selectedPlan === p.id;
+                return (
+                    <button
+                        key={p.id}
+                        onClick={() => setSelectedPlan(p.id)}
+                        className={`relative flex flex-col p-4 rounded-xl border text-left transition-colors ${active
+                            ? 'border-purple-500 bg-purple-900/10 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                            : 'border-gray-800 bg-gray-900 hover:border-gray-700'
+                            }`}
+                    >
+                        {p.badge && (
+                            <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg rounded-tr-xl">
+                                {p.badge}
+                            </div>
+                        )}
+                        <p className={`text-xs font-semibold ${active ? 'text-purple-400' : 'text-gray-400'} mb-1`}>{p.title}</p>
+                        <div className="flex items-baseline gap-1 mt-auto">
+                            <span className="text-2xl font-bold text-white">{p.price}</span>
                         </div>
-                    )}
-                    {p.active && (
-                        <div className={`absolute top-2 right-2 w-5 h-5 rounded-full bg-${p.border}-500 flex items-center justify-center`}>
-                            <Check size={10} className="text-white" />
-                        </div>
-                    )}
-                    <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">{p.id}</p>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-3xl font-black text-white">{p.price}</span>
-                        <span className="text-xl font-black text-white">{p.cents}</span>
-                        <span className="text-gray-500 text-sm ml-1">{p.per}</span>
-                    </div>
-                    <p className={`text-xs mt-1 font-medium ${p.subColor ?? 'text-gray-500'}`}>{p.sub}</p>
-                </button>
-            ))}
+                        <p className="text-xs mt-1 text-gray-500">{p.sub}</p>
+                        {active && (
+                            <div className="absolute bottom-3 right-3 w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center">
+                                <Check size={12} className="text-white" />
+                            </div>
+                        )}
+                    </button>
+                );
+            })}
         </div>
     );
 }
@@ -674,7 +698,7 @@ function StripePanel({ price, onBack }) {
 function SolanaPayPanel({
     solAddress, addrLoading, solUsdPrice, priceLoading, requiredSol,
     addrCopied, copyAddr, payStatus, pollAttempt, pollMax,
-    onStartWatch, onBack, badge, usdLabel, instructions,
+    onStartWatch, onSimulate, onBack, badge, usdLabel, instructions,
 }) {
     const isWaiting = payStatus === 'waiting' || payStatus === 'checking';
     const pct = pollMax > 0 ? Math.min((pollAttempt / pollMax) * 100, 100) : 0;
@@ -781,13 +805,21 @@ function SolanaPayPanel({
 
                     {/* CTA */}
                     {payStatus === 'idle' && requiredSol && (
-                        <button
-                            onClick={onStartWatch}
-                            className="w-full py-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-base hover:shadow-[0_0_35px_rgba(147,51,234,0.5)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
-                        >
-                            <CheckCircle2 size={18} />
-                            I've Sent Payment — Verify Now
-                        </button>
+                        <div className="space-y-2">
+                            <button
+                                onClick={onStartWatch}
+                                className="w-full py-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-base hover:shadow-[0_0_35px_rgba(147,51,234,0.5)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                                <CheckCircle2 size={18} />
+                                I've Sent Payment — Verify Now
+                            </button>
+                            <button
+                                onClick={onSimulate}
+                                className="w-full py-2 bg-gray-800 text-gray-400 text-xs font-bold rounded-lg hover:bg-gray-700 hover:text-white transition-colors"
+                            >
+                                [DEV] Simulate Payment Success
+                            </button>
+                        </div>
                     )}
                     {!requiredSol && payStatus === 'idle' && (
                         <p className="text-center text-yellow-400 text-xs animate-pulse">Fetching current SOL price...</p>
@@ -825,22 +857,22 @@ function SolanaPayPanel({
 }
 
 // ─── Success Panel (reused by Premium + Coins) ────────────────────────────────
-function SuccessPanel({ title, subtitle, txSig, perks, perkColor = 'green', ctaLabel, onClose }) {
+function SuccessPanel({ title, subtitle, txSig, perks, detailedPerks, perkColor = 'green', ctaLabel, onClose }) {
     const col = perkColor === 'purple'
         ? 'bg-purple-900/20 border-purple-500/20 text-purple-400'
         : 'bg-green-900/20 border-green-500/20 text-green-400';
-    const btnGrad = perkColor === 'purple'
-        ? 'bg-gradient-to-r from-purple-600 to-pink-600 shadow-[0_0_30px_rgba(147,51,234,0.4)]'
-        : 'bg-gradient-to-r from-green-500 to-emerald-600 shadow-[0_0_30px_rgba(34,197,94,0.4)]';
+    const btnClass = perkColor === 'purple'
+        ? 'bg-purple-600 hover:bg-purple-700'
+        : 'bg-green-600 hover:bg-green-700';
     const ringCol = perkColor === 'purple' ? 'bg-purple-500/20' : 'bg-green-500/20';
     const iconBg = perkColor === 'purple'
-        ? 'bg-gradient-to-br from-purple-500 to-pink-600 shadow-[0_0_50px_rgba(147,51,234,0.6)]'
-        : 'bg-gradient-to-br from-green-500 to-emerald-600 shadow-[0_0_50px_rgba(34,197,94,0.6)]';
+        ? 'bg-purple-500'
+        : 'bg-green-500';
 
     return (
         <div className="text-center py-8 space-y-5">
             <div className="relative mx-auto w-24 h-24">
-                <div className={`absolute inset-0 ${ringCol} rounded-full animate-ping`} style={{ animationDuration: '1.4s' }} />
+                <div className={`absolute inset-0 ${ringCol} rounded-full`} />
                 <div className={`relative w-24 h-24 ${iconBg} rounded-full flex items-center justify-center`}>
                     <CheckCircle2 size={44} className="text-white" />
                 </div>
@@ -858,15 +890,37 @@ function SuccessPanel({ title, subtitle, txSig, perks, perkColor = 'green', ctaL
                     <ExternalLink size={11} />View transaction on Solscan
                 </a>
             )}
-            <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
-                {perks.map(p => (
-                    <div key={p} className={`border rounded-xl p-3 ${col}`}>
-                        <p className="text-xs font-bold">{p}</p>
+            {detailedPerks ? (
+                <div className="text-left bg-gray-950/50 border border-gray-800 rounded-xl p-4 max-w-sm mx-auto shadow-inner">
+                    <p className="text-white font-bold text-sm mb-3 pb-2 border-b border-gray-800/80 text-center flex items-center justify-center gap-2">
+                        <Crown size={16} className={perkColor === 'purple' ? 'text-purple-400' : 'text-green-400'} />
+                        Your Premium Perks
+                    </p>
+                    <div className="flex flex-col gap-2.5 max-h-52 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: perkColor === 'purple' ? '#a855f7 transparent' : '#22c55e transparent' }}>
+                        {detailedPerks.map(p => (
+                            <div key={p.title} className="flex items-start gap-2.5 group">
+                                <div className={`mt-0.5 rounded-full p-0.5 flex-shrink-0 transition-colors ${perkColor === 'purple' ? 'bg-purple-900/40 text-purple-400 group-hover:bg-purple-500/20' : 'bg-green-900/40 text-green-400 group-hover:bg-green-500/20'}`}>
+                                    <Check size={12} strokeWidth={3} />
+                                </div>
+                                <div className="leading-snug">
+                                    <p className="text-gray-200 text-sm font-bold">{p.title}</p>
+                                    {p.desc && <p className="text-gray-500 text-xs mt-0.5">{p.desc}</p>}
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                ))}
-            </div>
-            <button onClick={onClose} className={`w-full py-3.5 rounded-xl text-white font-black hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 ${btnGrad}`}>
-                <Sparkles size={18} />{ctaLabel}
+                </div>
+            ) : perks ? (
+                <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
+                    {perks.map(p => (
+                        <div key={p} className={`border rounded-xl p-3 ${col}`}>
+                            <p className="text-xs font-bold">{p}</p>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
+            <button onClick={onClose} className={`w-full py-3.5 rounded-xl text-white font-bold transition-colors ${btnClass}`}>
+                {ctaLabel}
             </button>
         </div>
     );

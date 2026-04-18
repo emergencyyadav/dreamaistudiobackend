@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
     Search,
     Sparkles,
@@ -10,6 +10,8 @@ import {
     Maximize2,
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
+import MediaFrame from './MediaFrame';
+import { FALLBACK_MEDIA_IMAGE, resolveCharacterMedia } from './mediaUtils';
 
 const GENERATED_IMAGES_STORAGE_KEY = 'dreamai_generated_images';
 const GENERATED_VIDEOS_STORAGE_KEY = 'dreamai_generated_videos';
@@ -34,15 +36,30 @@ function formatDate(value) {
 }
 
 function MyCharacterCard({ char, onStartChat }) {
-    const img = char.images || char.image || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
+    const [isHovered, setIsHovered] = useState(false);
+
+    const { stillImage, motionPreview } = resolveCharacterMedia(char);
+    const img = stillImage || char.images || char.image || FALLBACK_MEDIA_IMAGE;
     const persona = char.persona || char.desc || 'A mysterious AI companion...';
+    const canPreviewMotion = !!motionPreview;
 
     return (
         <div
             className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gray-950 shadow-[0_8px_28px_rgba(0,0,0,0.28)] transition-transform duration-300 hover:-translate-y-1"
             style={{ aspectRatio: '2/3' }}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            onTouchStart={() => setIsHovered(true)}
+            onTouchEnd={() => setIsHovered(false)}
         >
-            <img src={img} alt={char.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+            <MediaFrame
+                imageUrl={img}
+                motionUrl={motionPreview}
+                alt={char.name}
+                play={isHovered && canPreviewMotion}
+                preload="metadata"
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0) 75%)' }} />
 
             <div className="absolute top-2 left-2 z-10 sm:top-2.5 sm:left-2.5">
@@ -79,10 +96,25 @@ function MyCharacterCard({ char, onStartChat }) {
 }
 
 function MyImageCard({ item }) {
+    const [imgError, setImgError] = useState(false);
+
     return (
         <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gray-950 shadow-[0_8px_28px_rgba(0,0,0,0.28)]">
             <div className="relative aspect-[4/5] overflow-hidden">
-                <img src={item.url} alt="Generated artwork" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                {imgError ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900/80 text-gray-500 gap-2">
+                        <ImageIcon size={32} className="opacity-40" />
+                        <span className="text-xs font-medium">Image expired</span>
+                        <span className="text-[10px] text-gray-600">CDN link is no longer available</span>
+                    </div>
+                ) : (
+                    <img
+                        src={item.url}
+                        alt="Generated artwork"
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        onError={() => setImgError(true)}
+                    />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/15 to-transparent" />
                 <div className="absolute left-2.5 top-2.5 flex flex-wrap gap-2 sm:left-3 sm:top-3">
                     <span className="rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white/90">
@@ -94,27 +126,29 @@ function MyImageCard({ item }) {
                         </span>
                     )}
                 </div>
-                <div className="absolute bottom-2.5 right-2.5 flex gap-2 sm:bottom-3 sm:right-3">
-                    <button
-                        onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-black/60 text-white transition-colors hover:bg-black/75 sm:h-10 sm:w-10"
-                    >
-                        <Maximize2 size={15} />
-                    </button>
-                    <a
-                        href={item.url}
-                        download={`dreamai_${item.id || 'image'}.png`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black transition-colors hover:bg-gray-200 sm:h-10 sm:w-10"
-                    >
-                        <Download size={15} />
-                    </a>
-                </div>
+                {!imgError && (
+                    <div className="absolute bottom-2.5 right-2.5 flex gap-2 sm:bottom-3 sm:right-3">
+                        <button
+                            onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
+                            className="flex h-9 w-9 items-center justify-center rounded-xl bg-black/60 text-white transition-colors hover:bg-black/75 sm:h-10 sm:w-10"
+                        >
+                            <Maximize2 size={15} />
+                        </button>
+                        <a
+                            href={item.url}
+                            download={`dreamai_${item.id || 'image'}.png`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black transition-colors hover:bg-gray-200 sm:h-10 sm:w-10"
+                        >
+                            <Download size={15} />
+                        </a>
+                    </div>
+                )}
             </div>
             <div className="p-3.5 sm:p-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-white">Generated image</h3>
+                    <h3 className="text-sm font-semibold text-white">{imgError ? 'Expired image' : 'Generated image'}</h3>
                     <span className="text-[11px] text-gray-500">{formatDate(item.createdAt)}</span>
                 </div>
                 <p className="text-xs leading-relaxed text-gray-400 line-clamp-3">
@@ -153,10 +187,22 @@ export default function MyAIView({ onNavigateToCreate, onNavigateToGenerate, ses
                     .eq('uuid', sessionInfo.user.id)
                     .single();
 
-                if (error) throw error;
+                if (error) {
+                    console.warn('[MyAI] Supabase cont_img query error:', error.message, error.code);
+                    throw error;
+                }
 
                 const remoteImages = Array.isArray(data?.cont_img) ? data.cont_img : [];
-                setGeneratedImages(remoteImages.length > 0 ? remoteImages : localImages);
+                // Merge remote and local images, deduplicate by id
+                const merged = [...remoteImages, ...localImages];
+                const seen = new Set();
+                const deduped = merged.filter(item => {
+                    if (!item?.id) return true;
+                    if (seen.has(item.id)) return false;
+                    seen.add(item.id);
+                    return true;
+                });
+                setGeneratedImages(deduped.length > 0 ? deduped : localImages);
             } catch (err) {
                 console.warn('[MyAI] Could not load users.cont_img, using local image cache instead:', err);
                 setGeneratedImages(localImages);

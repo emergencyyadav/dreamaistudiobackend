@@ -1,10 +1,10 @@
 const trimTrailingSlash = (value = '') => value.replace(/\/+$/, '');
 
-export const BACKEND_URL = trimTrailingSlash(
-    import.meta.env.VITE_BACKEND_URL || ''
-);
+export const BACKEND_URL = import.meta.env.DEV
+    ? ''
+    : trimTrailingSlash(import.meta.env.VITE_BACKEND_URL || '');
 
-export const hasBackend = Boolean(BACKEND_URL);
+export const hasBackend = import.meta.env.DEV || Boolean(BACKEND_URL);
 
 export const buildBackendUrl = (path) => {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -44,9 +44,18 @@ export async function backendFetch(path, { sessionInfo, headers = {}, body, ...o
 export async function backendJson(path, options = {}) {
     const response = await backendFetch(path, options);
     const contentType = response.headers.get('content-type') || '';
-    const payload = contentType.includes('application/json')
-        ? await response.json().catch(() => null)
-        : await response.text();
+    let payload;
+    if (contentType.includes('application/json')) {
+        const text = await response.text();
+        try {
+            payload = text ? JSON.parse(text) : null;
+        } catch (err) {
+            console.error('Frontend JSON parse error:', err.message, 'Raw text:', text);
+            payload = text; // Fallback to raw text
+        }
+    } else {
+        payload = await response.text();
+    }
 
     if (!response.ok) {
         const message =

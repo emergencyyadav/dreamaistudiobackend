@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
 import Front from "./front.jsx";
+import { I18nProvider } from "./i18n.jsx";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -43,7 +44,9 @@ class ErrorBoundary extends React.Component {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <Front />
+      <I18nProvider>
+        <Front />
+      </I18nProvider>
     </ErrorBoundary>
   </React.StrictMode>
 );

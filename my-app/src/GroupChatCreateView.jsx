@@ -7,6 +7,8 @@ import {
 import CharacterCard from './CharacterCard';
 import { supabase } from './supabaseClient';
 import { backendJson, hasBackend } from './backendApi';
+import MediaFrame from './MediaFrame';
+import { FALLBACK_MEDIA_IMAGE, resolveCharacterMedia } from './mediaUtils';
 
 function extractFirstImage(imgField) {
     if (!imgField) return null;
@@ -27,18 +29,61 @@ function extractFirstImage(imgField) {
 
 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
 
-export default function GroupChatCreateView({ onBack, onStartChat, initialCharacters, user, sessionInfo, onNavigateToCreate }) {
-    const [step, setStep] = useState(1); // 1: Select Characters, 2: Customize
+// ─── Sub-component with hover video support ───
+function GroupCharCard({ char, isSelected, selectedIndex, onToggle }) {
+    const [isHovered, setIsHovered] = useState(false);
+    const { stillImage, motionPreview } = resolveCharacterMedia(char);
+    const activeImg = stillImage || extractFirstImage(char.image) || extractFirstImage(char.images) || FALLBACK_IMG;
 
-    // Step 1 State
+    return (
+        <div
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            onTouchStart={() => setIsHovered(true)}
+            onTouchEnd={() => setIsHovered(false)}
+            onClick={() => onToggle(char.id)}
+            className={`relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 group ${isSelected ? 'ring-2 ring-purple-500 scale-[0.98]' : 'hover:scale-[1.02] ring-1 ring-white/10'}`}
+            style={{ aspectRatio: '3/4' }}
+        >
+            <div className={`absolute inset-0 bg-black/40 z-10 transition-opacity ${isSelected ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'}`} />
+
+            {/* Selection Checkbox */}
+            <div className={`absolute top-3 right-3 w-6 h-6 rounded-full border-2 z-20 flex items-center justify-center transition-all ${isSelected ? 'bg-purple-500 border-purple-500' : 'border-white/50 bg-black/30'}`}>
+                {isSelected && <Check size={14} className="text-white" />}
+            </div>
+
+            {/* Selection number badge */}
+            {isSelected && (
+                <div className="absolute top-3 left-3 w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center z-20 text-[10px] font-black text-white shadow-lg">
+                    {selectedIndex + 1}
+                </div>
+            )}
+
+            <MediaFrame
+                imageUrl={activeImg}
+                motionUrl={motionPreview}
+                alt={char.name}
+                play={isHovered && !!motionPreview}
+                preload="metadata"
+                className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 ${isSelected ? 'brightness-110' : ''}`}
+            />
+
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12 z-10">
+                <h3 className="text-white font-black text-sm drop-shadow-md truncate">{char.name}</h3>
+                <p className="text-xs text-gray-300 truncate">{char.public_description || char.desc || 'No description'}</p>
+            </div>
+        </div>
+    );
+}
+
+export default function GroupChatCreateView({ onBack, onStartChat, initialCharacters, user, sessionInfo, onNavigateToCreate }) {
+    const [step, setStep] = useState(1);
     const [searchQuery, setSearchQuery] = useState('');
     const [characters, setCharacters] = useState(initialCharacters || []);
     const [selectedIds, setSelectedIds] = useState([]);
     const [isLoading, setIsLoading] = useState(!initialCharacters?.length);
-    const [activeFilter, setActiveFilter] = useState('All'); // All | Popular | My Characters
-    const [activeGender, setActiveGender] = useState('All'); // All | Male | Female 
-
-    // Step 2 State
+    const [activeFilter, setActiveFilter] = useState('All');
+    const [activeGender, setActiveGender] = useState('All');
     const [groupName, setGroupName] = useState('');
     const [scenario, setScenario] = useState('');
     const [privateDesc, setPrivateDesc] = useState('');
@@ -115,7 +160,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                 .select('*')
                 .order('created_at', { ascending: false })
                 .limit(80);
-
             if (data) setCharacters(data);
         } catch (err) {
             console.error(err);
@@ -128,22 +172,20 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
         if (selectedIds.includes(id)) {
             setSelectedIds(selectedIds.filter(v => v !== id));
         } else {
-            if (selectedIds.length >= 10) return; // limit to 10
+            if (selectedIds.length >= 10) return;
             setSelectedIds([...selectedIds, id]);
         }
     };
 
     const handleNext = () => {
         if (selectedIds.length === 0) return;
-        setOpeningSenderId(selectedIds[0]); // Default to first selected
+        setOpeningSenderId(selectedIds[0]);
         setStep(2);
     };
 
     const handleStart = () => {
         if (!groupName.trim() || selectedIds.length === 0) return;
-
         const selectedChars = characters.filter(c => selectedIds.includes(c.id));
-
         onStartChat({
             isGroup: true,
             title: groupName,
@@ -160,20 +202,16 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
 
     const selectedCharacters = characters.filter(c => selectedIds.includes(c.id));
 
-    // Filtered characters based on active filter + search
     const currentUserId = sessionInfo?.user?.id;
     const filteredCharacters = characters.filter(c => {
-        // Search filter
         const matchesSearch = !searchQuery ||
             (c.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
             (c.public_description || c.desc || '').toLowerCase().includes(searchQuery.toLowerCase());
 
-        // Tab filter
         if (activeFilter === 'My Characters') {
             if (!(matchesSearch && currentUserId && c.uuid === currentUserId)) return false;
         }
 
-        // Gender filter
         if (activeGender !== 'All') {
             let tags = [];
             if (Array.isArray(c.tags)) {
@@ -195,7 +233,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
         return matchesSearch;
     });
 
-    // Sort for Popular tab
     const sortedCharacters = activeFilter === 'Popular'
         ? [...filteredCharacters].sort((a, b) => {
             const parseK = str => parseFloat((str || '0').toString().replace('k', '')) * (str?.toString().includes('k') ? 1000 : (str?.toString().includes('M') ? 1000000 : 1));
@@ -234,12 +271,8 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
 
                 {step === 1 && (
                     <div className="p-4 sm:p-6 pb-32 max-w-7xl mx-auto h-full flex flex-col">
-
-                        {/* Filter Tabs & Quick Actions — Two rows for clarity */}
                         <div className="flex flex-col gap-3 mb-5">
-                            {/* Row 1: Create AI + Category Filters */}
                             <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1 scroll-smooth">
-                                {/* Create New Pill - Prominent */}
                                 {onNavigateToCreate && (
                                     <button
                                         onClick={onNavigateToCreate}
@@ -248,11 +281,7 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                                         <Plus size={14} /> Create AI
                                     </button>
                                 )}
-
-                                {/* Separator */}
                                 <div className="shrink-0 w-px h-6 bg-white/10 mx-1" />
-
-                                {/* Category Filters */}
                                 {filterTabs.map(tab => (
                                     <button
                                         key={tab.key}
@@ -267,8 +296,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                                     </button>
                                 ))}
                             </div>
-
-                            {/* Row 2: Gender Filters */}
                             <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
                                 <span className="shrink-0 text-[10px] font-bold text-gray-600 uppercase tracking-widest mr-1">Gender:</span>
                                 {['All', 'Female', 'Male', 'Trans'].map(gender => (
@@ -286,7 +313,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             </div>
                         </div>
 
-                        {/* Search */}
                         <div className="relative mb-5">
                             <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
                             <input
@@ -320,36 +346,14 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 lg:gap-4 pb-20">
                                 {sortedCharacters.map(char => {
                                     const isSelected = selectedIds.includes(char.id);
-                                    const activeImg = extractFirstImage(char.image) || extractFirstImage(char.images) || FALLBACK_IMG;
-
                                     return (
-                                        <div
+                                        <GroupCharCard
                                             key={char.id}
-                                            onClick={() => toggleCharacter(char.id)}
-                                            className={`relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 group ${isSelected ? 'ring-2 ring-purple-500 scale-[0.98]' : 'hover:scale-[1.02] ring-1 ring-white/10'}`}
-                                            style={{ aspectRatio: '3/4' }}
-                                        >
-                                            <div className={`absolute inset-0 bg-black/40 z-10 transition-opacity ${isSelected ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'}`} />
-
-                                            {/* Selection Checkbox */}
-                                            <div className={`absolute top-3 right-3 w-6 h-6 rounded-full border-2 z-20 flex items-center justify-center transition-all ${isSelected ? 'bg-purple-500 border-purple-500' : 'border-white/50 bg-black/30'}`}>
-                                                {isSelected && <Check size={14} className="text-white" />}
-                                            </div>
-
-                                            {/* Selection number badge */}
-                                            {isSelected && (
-                                                <div className="absolute top-3 left-3 w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center z-20 text-[10px] font-black text-white shadow-lg">
-                                                    {selectedIds.indexOf(char.id) + 1}
-                                                </div>
-                                            )}
-
-                                            <img src={activeImg} alt={char.name} className={`w-full h-full object-cover transition-transform duration-500 ${isSelected ? 'brightness-110' : ''}`} />
-
-                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12 z-10">
-                                                <h3 className="text-white font-black text-sm drop-shadow-md truncate">{char.name}</h3>
-                                                <p className="text-xs text-gray-300 truncate">{char.public_description || char.desc || 'No description'}</p>
-                                            </div>
-                                        </div>
+                                            char={char}
+                                            isSelected={isSelected}
+                                            selectedIndex={selectedIds.indexOf(char.id)}
+                                            onToggle={toggleCharacter}
+                                        />
                                     );
                                 })}
                             </div>
@@ -359,8 +363,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
 
                 {step === 2 && (
                     <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-6 pb-32">
-
-                        {/* Selected Characters Bar */}
                         <div>
                             <div className="flex items-center justify-between mb-3">
                                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Group Members ({selectedCharacters.length})</h3>
@@ -369,7 +371,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-4 pt-2 px-2 -mx-2">
                                 {selectedCharacters.map(c => {
                                     const img = extractFirstImage(c.image) || extractFirstImage(c.images) || FALLBACK_IMG;
-
                                     return (
                                         <div key={c.id} className="relative flex-shrink-0 group flex flex-col items-center w-20">
                                             <div className="w-16 h-16 rounded-full overflow-hidden border-[3px] border-gray-900 shadow-[0_0_15px_rgba(168,85,247,0.3)] group-hover:shadow-[0_0_25px_rgba(168,85,247,0.6)] group-hover:scale-105 transition-all relative">
@@ -378,7 +379,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                                                     <X size={20} className="text-white drop-shadow-lg" />
                                                 </div>
                                             </div>
-                                            {/* We intercept onClick specifically for the top of the card or the X to remove them seamlessly */}
                                             <button onClick={() => toggleCharacter(c.id)} className="absolute inset-0 z-10 cursor-pointer" aria-label={`Remove ${c.name}`} />
                                             <p className="text-[11px] text-center mt-2 text-gray-300 font-bold truncate w-full px-1">{c.name}</p>
                                         </div>
@@ -390,7 +390,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             </div>
                         </div>
 
-                        {/* Title & Tags */}
                         <div className="space-y-4">
                             <div>
                                 <div className="flex justify-between items-center mb-1.5">
@@ -419,7 +418,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             </div>
                         </div>
 
-                        {/* Public / Private Toggle */}
                         <div className="bg-gray-900/50 border border-gray-800/60 rounded-2xl p-5">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
@@ -442,7 +440,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             </div>
                         </div>
 
-                        {/* Scenario */}
                         <div>
                             <div className="flex items-center justify-between mb-1.5">
                                 <label className="text-xs font-bold text-gray-400 uppercase flex items-center gap-1.5"><Sparkles size={12} /> Scenario</label>
@@ -468,7 +465,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             </div>
                         </div>
 
-                        {/* Private Description */}
                         <div>
                             <div className="flex items-center justify-between mb-1.5">
                                 <label className="text-xs font-bold text-gray-400 uppercase flex items-center gap-1.5"><Search size={12} /> Private Context (Hidden)</label>
@@ -486,7 +482,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             </div>
                         </div>
 
-                        {/* Background Media */}
                         <div>
                             <label className="text-xs font-bold text-gray-400 uppercase mb-2 flex items-center gap-1.5"><ImageIcon size={12} /> Chat Background Theme</label>
                             <div className="flex items-center gap-4">
@@ -499,7 +494,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                                             </div>
                                         </>
                                     ) : (
-                                        // Auto-generated Tiled Collage
                                         <div className="w-full h-full flex flex-wrap bg-gray-950">
                                             {(() => {
                                                 const imgs = selectedCharacters.map(c => extractFirstImage(c.image) || extractFirstImage(c.images)).filter(Boolean);
@@ -526,7 +520,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                             </div>
                         </div>
 
-                        {/* Initial Message */}
                         <div className="bg-purple-900/10 border border-purple-500/20 rounded-2xl p-5">
                             <h3 className="text-sm font-bold text-purple-300 mb-4 flex items-center gap-2"><MessageSquare size={16} /> Opening Message</h3>
                             <div className="space-y-4">
@@ -563,7 +556,6 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                                 />
                             </div>
                         </div>
-
                     </div>
                 )}
             </div>

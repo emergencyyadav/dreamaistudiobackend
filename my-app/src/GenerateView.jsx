@@ -297,7 +297,18 @@ export default function GenerateView({ sessionInfo, isPremium, onBurnCoin, onReq
         setImageError('');
 
         try {
-            if (!hasBackend) throw new Error('Backend image generation is not configured.');
+            if (!hasBackend) throw new Error('Backend image generation is not configured. Ensure the dev server or VITE_BACKEND_URL is set.');
+
+            // Check auth session is present
+            if (!sessionInfo?.access_token) {
+                // Try to refresh the session first
+                const { data: refreshed } = await supabase.auth.getSession();
+                if (!refreshed?.session?.access_token) {
+                    throw new Error('You must be logged in to generate images. Please sign in and try again.');
+                }
+                // Use the refreshed session for this request
+                Object.assign(sessionInfo, refreshed.session);
+            }
 
             if (!isPremium) {
                 const cost = COST_PER_IMAGE * genCount;
@@ -310,6 +321,7 @@ export default function GenerateView({ sessionInfo, isPremium, onBurnCoin, onReq
                 }
             }
 
+            console.log('[Generate] Sending request to /api/images/generate with model:', IMAGE_MODEL);
             const backendData = await backendJson('/api/images/generate', {
                 method: 'POST',
                 sessionInfo,
@@ -322,9 +334,10 @@ export default function GenerateView({ sessionInfo, isPremium, onBurnCoin, onReq
                 }
             });
 
+            console.log('[Generate] Backend response:', backendData);
             const urls = Array.isArray(backendData?.urls) ? backendData.urls : [];
             if (urls.length === 0) {
-                throw new Error('No images were returned from the backend.');
+                throw new Error('No images were returned. The generation may have timed out — try again.');
             }
 
             setGeneratedImages(urls);
@@ -343,8 +356,17 @@ export default function GenerateView({ sessionInfo, isPremium, onBurnCoin, onReq
             }
 
         } catch (err) {
-            console.error('Image Generation Error:', err);
-            setImageError(`Error: ${err.message}`);
+            console.error('[Generate] Image Generation Error:', err);
+            const msg = err.message || 'Unknown error';
+            if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('expired session') || msg.includes('Missing bearer token')) {
+                setImageError('Session expired. Please refresh the page and try again.');
+            } else if (msg.includes('429') || msg.includes('Too many')) {
+                setImageError('Rate limit reached. Please wait a moment and try again.');
+            } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('fetch')) {
+                setImageError('Network error. Check your internet connection and try again.');
+            } else {
+                setImageError(`Error: ${msg}`);
+            }
         } finally {
             setIsGenerating(false);
         }
@@ -408,8 +430,8 @@ export default function GenerateView({ sessionInfo, isPremium, onBurnCoin, onReq
                             <Sparkles size={18} className="text-white" />
                         </div>
                         <div>
-                            <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">AI Generator</h1>
-                            <p className="text-xs text-gray-500 font-medium">Create stunning AI photography</p>
+                            <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">Create images</h1>
+                            <p className="text-xs text-gray-500 font-medium">Unleash your imagination with AI</p>
                         </div>
                     </div>
 
@@ -451,11 +473,11 @@ export default function GenerateView({ sessionInfo, isPremium, onBurnCoin, onReq
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <p className="text-[11px] font-black uppercase tracking-[0.22em] text-pink-300/80">Compose Freely</p>
-                                    <h2 className="mt-1 text-lg font-black text-white tracking-tight">Roomier mobile creator</h2>
-                                    <p className="mt-1 text-sm leading-relaxed text-gray-400">Tweak everything in one larger panel, then review your result below without flipping cramped tabs.</p>
+                                    <h2 className="mt-1 text-lg font-black text-white tracking-tight">Generate your image</h2>
+                                    <p className="mt-1 text-sm leading-relaxed text-gray-400">create your image using parameters given below or write your prompt manually!</p>
                                 </div>
                                 <div className="rounded-2xl bg-white/[0.04] border border-white/[0.06] px-3 py-2 text-right shrink-0">
-                                    <p className="text-[10px] uppercase tracking-[0.18em] text-gray-500 font-bold">Output</p>
+                                    <p className="text-[10px] uppercase tracking-[0.18em] text-gray-500 font-bold">generated</p>
                                     <p className="text-sm font-black text-white">{generatedImages.length || 0}</p>
                                 </div>
                             </div>

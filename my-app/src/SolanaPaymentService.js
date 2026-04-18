@@ -13,8 +13,9 @@ const SOLANA_RPC = import.meta.env.VITE_SOLANA_RPC || 'https://api.mainnet-beta.
 const SOLANA_NETWORK = import.meta.env.VITE_SOLANA_NETWORK || 'mainnet-beta';
 
 export const PLANS = {
-    monthly: { usd: 4.99, label: 'Monthly', period: '/ month' },
-    yearly: { usd: 39.99, label: 'Yearly', period: '/ year', savings: '33%' },
+    monthly: { usd: 8.00, label: 'Monthly', period: '/ month' },
+    quarterly: { usd: 20.00, label: 'Quarterly', period: '/ 3 months', savings: '17%' },
+    yearly: { usd: 60.00, label: 'Yearly', period: '/ year', savings: '38%' },
 };
 
 let solPriceCache = null;
