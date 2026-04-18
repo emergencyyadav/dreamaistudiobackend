@@ -101,7 +101,10 @@ function setCors(req, res) {
     // For production, we want to allow your Netlify site. 
     // If ALLOWED_ORIGINS is empty, it will reflect the current origin.
     const allowAny = env.allowedOrigins.length === 0;
-    const allowedOrigin = allowAny ? (origin || '*') : (origin && env.allowedOrigins.includes(origin) ? origin : env.allowedOrigins[0]);
+
+    // Safety check to ensure we always allow your Netlify domain specifically, regardless of protocol
+    const isNetlify = origin && origin.includes('dreamailove.netlify.app');
+    const allowedOrigin = isNetlify ? origin : (allowAny ? (origin || '*') : (origin && env.allowedOrigins.includes(origin) ? origin : env.allowedOrigins[0]));
 
     if (allowedOrigin) {
         res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
