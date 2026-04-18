@@ -98,17 +98,19 @@ const PREMIUM_PLANS = {
 
 function setCors(req, res) {
     const origin = req.headers.origin;
+    // For production, we want to allow your Netlify site. 
+    // If ALLOWED_ORIGINS is empty, it will reflect the current origin.
     const allowAny = env.allowedOrigins.length === 0;
-    const allowedOrigin =
-        allowAny ? (origin || '*') : (origin && env.allowedOrigins.includes(origin) ? origin : null);
+    const allowedOrigin = allowAny ? (origin || '*') : (origin && env.allowedOrigins.includes(origin) ? origin : env.allowedOrigins[0]);
 
     if (allowedOrigin) {
         res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
         res.setHeader('Vary', 'Origin');
     }
 
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
 
 function sendJson(res, statusCode, payload) {

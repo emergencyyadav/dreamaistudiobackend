@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowRight, ArrowLeft, Dices, CheckCircle2, MessageCircle, Sparkles } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Dices, CheckCircle2, MessageCircle, Sparkles, Users, ImageIcon, Play, Phone, BookOpen } from 'lucide-react';
 
 // ─── All image data copied directly from CreateView ───
 const styleImages = {
