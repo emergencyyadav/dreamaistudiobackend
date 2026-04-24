@@ -132,14 +132,14 @@ export default function ProfileView({ onLogout, refreshKey = 0, onReadTerms, onF
                 setUser({
                     id: session.user.id,
                     email: session.user.email,
-                    username: metadata.username || metadata.full_name || 'user_' + session.user.id.substring(0, 8),
+                    username: dbUser?.username || 'Anonymous',
                     avatarUrl: metadata.avatar_url || null,
                     createdAt: session.user.created_at,
                     usernameUpdates: metadata.username_updates || [],
                     language: metadata.language || 'English',
                     isPremium: dbUser?.is_premium ?? false
                 });
-                setNewUsername(metadata.username || metadata.full_name || 'user_' + session.user.id.substring(0, 8));
+                setNewUsername(dbUser?.username || '');
                 fetchStats(session.user.id);
             }
             setLoading(false);

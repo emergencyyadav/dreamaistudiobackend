@@ -682,7 +682,7 @@ export default function App() {
             setUser(dbUser.username);
             setShowOnboarding(false);
           } else {
-            setUser(metadata?.full_name || session.user.email);
+            setUser('New User');
             setShowOnboarding(true);
           }
           setAuthLoading(false);
@@ -732,7 +732,7 @@ export default function App() {
             setUser(dbUser.username);
             setShowOnboarding(false);
           } else {
-            setUser(metadata?.full_name || session.user.email);
+            setUser('New User');
             setShowOnboarding(true);
           }
         });

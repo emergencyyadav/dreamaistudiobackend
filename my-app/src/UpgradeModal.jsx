@@ -925,12 +925,6 @@ function CryptoPayPanel({
                                 <CheckCircle2 size={18} />
                                 I've Sent Payment — Verify Now
                             </button>
-                            <button
-                                onClick={onSimulate}
-                                className="w-full py-2 bg-gray-800 text-gray-400 text-xs font-bold rounded-lg hover:bg-gray-700 hover:text-white transition-colors"
-                            >
-                                [DEV] Simulate Payment Success
-                            </button>
                         </div>
                     )}
                     {(selectedCoin === 'USDT' || selectedCoin === 'USDC') && (

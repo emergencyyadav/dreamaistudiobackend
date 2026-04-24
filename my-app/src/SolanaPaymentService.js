@@ -61,27 +61,27 @@ export function calcSolAmount(plan, solPriceUsd) {
     return Math.ceil((usd / solPriceUsd) * 1e6) / 1e6;
 }
 
-export async function getOrCreateUserSolanaAddress(uuid, sessionInfo = null) {
+export async function getOrCreateUserCryptoAddresses(uuid, sessionInfo = null) {
     if (!uuid) return null;
     if (!hasBackend) {
-        console.warn('[Solana] Safe address derivation requires VITE_BACKEND_URL. Frontend derivation is disabled.');
+        console.warn('[Crypto] Safe address derivation requires VITE_BACKEND_URL. Frontend derivation is disabled.');
         return null;
     }
 
     try {
-        const data = await backendJson('/api/payments/solana/address', {
+        const data = await backendJson('/api/payments/crypto/addresses', {
             method: 'POST',
             sessionInfo,
             body: {},
         });
-        return data?.address || null;
+        return data || null;
     } catch (err) {
-        console.error('[Solana] getOrCreateUserSolanaAddress error:', err);
+        console.error('[Crypto] getOrCreateUserCryptoAddresses error:', err);
         return null;
     }
 }
 
-export const getUserSolanaAddress = getOrCreateUserSolanaAddress;
+export const getUserCryptoAddresses = getOrCreateUserCryptoAddresses;
 
 const connection = new Connection(SOLANA_RPC, 'confirmed');
 

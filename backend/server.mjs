@@ -10,6 +10,8 @@ import { derivePath } from 'ed25519-hd-key';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { ethers } from 'ethers';
+import crypto from 'crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const localEnvPath = resolve(__dirname, '.env');
@@ -63,6 +65,8 @@ const env = {
     elevenLabsDefaultVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || 'oyOgbRLsneo58YVkU7Di',
     solanaRpc: process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com',
     solanaMasterSeed: process.env.SOLANA_MASTER_SEED || '',
+    tronXpub: process.env.TRON_XPUB || '',
+    baseXpub: process.env.BASE_XPUB || '',
 };
 
 cloudinary.config({
@@ -717,15 +721,56 @@ function uuidToChildIndex(uuid) {
     return parseInt(hex, 16) & 0x7fffffff;
 }
 
+function ethToTron(ethAddress) {
+    const hex = ethAddress.toLowerCase().replace('0x', '');
+    const tronHex = '41' + hex;
+    const tronBuffer = Buffer.from(tronHex, 'hex');
+    const hash1 = crypto.createHash('sha256').update(tronBuffer).digest();
+    const hash2 = crypto.createHash('sha256').update(hash1).digest();
+    const checksum = hash2.subarray(0, 4);
+    const finalAddress = Buffer.concat([tronBuffer, checksum]);
+    return bs58.encode(finalAddress);
+}
+
 async function deriveAddressForUser(uuid) {
     const seed = await getMasterSeed();
     const index = uuidToChildIndex(uuid);
+
+    // Solana Address
     const { key } = derivePath(`m/44'/501'/${index}'/0'`, seed.toString('hex'));
     const keypair = nacl.sign.keyPair.fromSeed(key);
-    return bs58.encode(keypair.publicKey);
+    const solanaAddress = bs58.encode(keypair.publicKey);
+
+    // Tron Address (for USDT TRC-20)
+    let tronAddress;
+    if (env.tronXpub) {
+        const tronNode = ethers.HDNodeWallet.fromExtendedKey(env.tronXpub);
+        tronAddress = ethToTron(tronNode.derivePath(index.toString()).address);
+    } else {
+        const hdNode = ethers.HDNodeWallet.fromSeed(seed);
+        const tronNode = hdNode.derivePath(`m/44'/195'/0'/0/${index}`);
+        tronAddress = ethToTron(tronNode.address);
+    }
+
+    // Base Address (for USDC ERC-20)
+    let baseAddress;
+    if (env.baseXpub) {
+        const baseNode = ethers.HDNodeWallet.fromExtendedKey(env.baseXpub);
+        baseAddress = baseNode.derivePath(index.toString()).address;
+    } else {
+        const hdNode = ethers.HDNodeWallet.fromSeed(seed);
+        const baseNode = hdNode.derivePath(`m/44'/60'/0'/0/${index}`);
+        baseAddress = baseNode.address;
+    }
+
+    return {
+        solana: solanaAddress,
+        tron: tronAddress,
+        base: baseAddress
+    };
 }
 
-async function getOrCreateSolanaAddress(userId) {
+async function getOrCreateCryptoAddresses(userId) {
     if (!adminSupabase) {
         throw new Error('Supabase service role is not configured');
     }
@@ -737,12 +782,52 @@ async function getOrCreateSolanaAddress(userId) {
         .single();
 
     if (!error && data?.crypto_addresses) {
-        return data.crypto_addresses;
+        let addresses = data.crypto_addresses;
+
+        // Handle double-stringified cases or TEXT storage
+        if (typeof addresses === 'string' && addresses.startsWith('{')) {
+            try { addresses = JSON.parse(addresses); } catch (e) { }
+        }
+
+        // Handle old single-string address format
+        if (typeof addresses === 'string') {
+            const oldSol = addresses;
+            addresses = await deriveAddressForUser(userId);
+            addresses.solana = oldSol;
+            await adminSupabase.from('users').update({ crypto_addresses: addresses }).eq('uuid', userId);
+            return addresses;
+        }
+
+        // Repair corrupted nesting: {"solana": "{\"solana\":...}"}
+        let updated = false;
+        if (typeof addresses.solana === 'string' && addresses.solana.startsWith('{')) {
+            try {
+                const inner = JSON.parse(addresses.solana);
+                if (inner.solana) {
+                    addresses.solana = inner.solana;
+                    updated = true;
+                }
+            } catch (e) { }
+        }
+
+        // Standard migration for new chains
+        if (!addresses.tron || !addresses.base) {
+            const next = await deriveAddressForUser(userId);
+            if (!addresses.tron) { addresses.tron = next.tron; updated = true; }
+            if (!addresses.base) { addresses.base = next.base; updated = true; }
+        }
+
+        if (updated) {
+            if (addresses.ethereum) delete addresses.ethereum;
+            await adminSupabase.from('users').update({ crypto_addresses: addresses }).eq('uuid', userId);
+        }
+
+        return addresses;
     }
 
-    const address = await deriveAddressForUser(userId);
-    await adminSupabase.from('users').update({ crypto_addresses: address }).eq('uuid', userId);
-    return address;
+    const addresses = await deriveAddressForUser(userId);
+    await adminSupabase.from('users').update({ crypto_addresses: addresses }).eq('uuid', userId);
+    return addresses;
 }
 
 async function getSignatureDetails(signature) {
@@ -752,7 +837,7 @@ async function getSignatureDetails(signature) {
     });
     if (!tx?.meta) return null;
     const accountKeys = tx.transaction.message.staticAccountKeys ?? tx.transaction.message.accountKeys ?? [];
-    return { tx, accountKeys };
+    return { tx, accountKeys, blockTime: tx.blockTime };
 }
 
 async function confirmSolanaPayment(userId, payload) {
@@ -765,33 +850,70 @@ async function confirmSolanaPayment(userId, payload) {
         throw new Error('signature, requiredSol, and solAddress are required');
     }
 
-    const expectedAddress = await getOrCreateSolanaAddress(userId);
+    const cryptoAddresses = await getOrCreateCryptoAddresses(userId);
+    const expectedAddress = typeof cryptoAddresses === 'string' ? cryptoAddresses : cryptoAddresses?.solana;
     if (expectedAddress !== solAddress) {
         throw new Error('Payment address does not match the authenticated user');
     }
 
+    // 1. Prevent Double Spends (Check if signature already used)
+    const { data: duplicate } = await adminSupabase
+        .from('payment_logs')
+        .select('id')
+        .eq('tx_signature', signature)
+        .maybeSingle();
+
+    if (duplicate) {
+        throw new Error('This transaction has already been processed for a payment');
+    }
+
+    // 2. Recalculate required amount on server-side (Prevents parameter tampering)
+    const livePrice = await getLiveSolPrice();
+    let usdTarget = 0;
+    if (kind === 'premium') {
+        usdTarget = PREMIUM_PLANS[plan]?.usd ?? PREMIUM_PLANS.monthly.usd;
+    } else if (kind === 'coins') {
+        usdTarget = Number(pack?.price || 0);
+    }
+
+    if (usdTarget <= 0) throw new Error('Invalid payment target');
+    const serverRequiredSol = (usdTarget / livePrice);
+
     let received = 0;
     if (signature.startsWith('dev_test_')) {
-        received = Number(requiredSol);
+        received = serverRequiredSol;
     } else {
         const details = await getSignatureDetails(signature);
         if (!details) {
-            throw new Error('Transaction could not be loaded');
+            throw new Error('Transaction could not be fetched from the blockchain');
+        }
+
+        // 3. Prevent Exploitation by Old Transactions (Max 20 days)
+        if (details.blockTime) {
+            const txAgeSeconds = Date.now() / 1000 - details.blockTime;
+            const maxAgeSeconds = 20 * 24 * 60 * 60; // 20 days
+            if (txAgeSeconds > maxAgeSeconds) {
+                throw new Error('This transaction is too old to be used for a new subscription');
+            }
         }
 
         const addressIndex = details.accountKeys.findIndex((key) => key.toString() === solAddress);
         if (addressIndex === -1) {
-            throw new Error('Transaction does not pay the expected address');
+            throw new Error('This transaction was not sent to your personal payment address');
         }
 
         received = (details.tx.meta.postBalances[addressIndex] - details.tx.meta.preBalances[addressIndex]) / LAMPORTS_PER_SOL;
-        if (received < Number(requiredSol) * 0.98) {
-            throw new Error('Transaction amount is below the required threshold');
+
+        // 4. Handle Underpayment & Mismatch (5% Slippage Tolerance)
+        // We allows 5% buffer in case SOL price moved between frontend quote and server verification
+        const buffer = 0.95;
+        if (received < serverRequiredSol * buffer) {
+            throw new Error(`Insufficient payment. Received ${received.toFixed(4)} SOL, but roughly ${serverRequiredSol.toFixed(4)} SOL is required.`);
         }
     }
 
     if (kind === 'premium') {
-        const premiumPlan = PREMIUM_PLANS[plan];
+        const premiumPlan = PREMIUM_PLANS[plan] || PREMIUM_PLANS.monthly;
         if (!premiumPlan) {
             throw new Error('Unknown premium plan');
         }
@@ -926,10 +1048,10 @@ const server = createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && requestUrl.pathname === '/api/payments/solana/address') {
+        if (req.method === 'POST' && requestUrl.pathname === '/api/payments/crypto/addresses') {
             const user = await getAuthenticatedUser(req);
-            const address = await getOrCreateSolanaAddress(user.id);
-            sendJson(res, 200, { address });
+            const addresses = await getOrCreateCryptoAddresses(user.id);
+            sendJson(res, 200, addresses);
             return;
         }
 
@@ -938,6 +1060,87 @@ const server = createServer(async (req, res) => {
             const payload = await readJson(req);
             const result = await confirmSolanaPayment(user.id, payload);
             sendJson(res, 200, result);
+            return;
+        }
+
+        if (req.method === 'POST' && requestUrl.pathname === '/api/payments/cryptogate/create') {
+            const user = await getAuthenticatedUser(req);
+            const payload = await readJson(req);
+            const { amount, plan, pack, kind } = payload || {};
+
+            const orderIdData = pack ? pack.id : plan;
+            const order_id = `${user.id}||${kind}||${orderIdData}`;
+
+            const cgResponse = await fetch('http://localhost:3000/api/v1/payment/create', {
+                method: 'POST',
+                headers: {
+                    'x-api-key': 'cgk_live_0o0jdzsaq1s730hhzuy5zywiu5c0doqy',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    coin: "USDC",
+                    amount: amount,
+                    order_id: order_id,
+                    redirect_url: `http://localhost:5173/`,
+                    webhook_url: "http://localhost:4000/api/webhooks/crypto"
+                })
+            });
+
+            if (!cgResponse.ok) {
+                const text = await cgResponse.text();
+                throw new Error('Gateway error: ' + text);
+            }
+
+            const data = await cgResponse.json();
+            sendJson(res, 200, data);
+            return;
+        }
+
+        if (req.method === 'POST' && requestUrl.pathname === '/api/webhooks/crypto') {
+            const payload = await readJson(req);
+            const { status, order_id } = payload || {};
+            console.log('[Webhook] Received CryptoGate Webhook:', payload);
+
+            if (status === 'paid' || status === 'completed' || status === 'confirmed' || status === 'success') {
+                const parts = order_id ? order_id.split('||') : [];
+                if (parts.length >= 3) {
+                    const userId = parts[0];
+                    const kind = parts[1];
+                    const planOrPack = parts[2];
+
+                    if (adminSupabase) {
+                        try {
+                            if (kind === 'premium') {
+                                const premiumPlan = PREMIUM_PLANS[planOrPack] || PREMIUM_PLANS.monthly;
+                                const expiresAt = new Date(Date.now() + premiumPlan.days * 86400_000).toISOString();
+                                await adminSupabase.from('users').update({
+                                    is_premium: true,
+                                    premium_plan: planOrPack,
+                                    premium_expires_at: expiresAt,
+                                    coin_balance: 99999,
+                                }).eq('uuid', userId);
+                            } else if (kind === 'coins') {
+                                const { data: currentUser } = await adminSupabase
+                                    .from('users')
+                                    .select('coin_balance')
+                                    .eq('uuid', userId)
+                                    .single();
+
+                                let addedCoins = 100;
+                                if (planOrPack === 'popular') addedCoins = 700;
+                                else if (planOrPack === 'power') addedCoins = 3000;
+                                else if (planOrPack === 'starter') addedCoins = 100;
+
+                                const newBalance = Number(currentUser?.coin_balance || 0) + addedCoins;
+                                await adminSupabase.from('users').update({ coin_balance: newBalance }).eq('uuid', userId);
+                            }
+                        } catch (err) {
+                            console.error('[Webhook] Update Error:', err);
+                        }
+                    }
+                }
+            }
+            sendJson(res, 200, { received: true });
             return;
         }
 
