@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import {
-    getOrCreateUserSolanaAddress,
+    getOrCreateUserCryptoAddresses,
     getLiveSolPrice,
     calcSolAmount,
     pollForPayment,
@@ -115,6 +115,7 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
     const [selectedPlan, setSelectedPlan] = useState('monthly');
     const [payMethod, setPayMethod] = useState('');
     const [solAddress, setSolAddress] = useState(null);
+    const [cryptoAddresses, setCryptoAddresses] = useState(null);
     const [addrLoading, setAddrLoading] = useState(false);
     const [solUsdPrice, setSolUsdPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(false);
@@ -133,11 +134,15 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
     }, []);
 
     useEffect(() => {
-        if (payMethod !== 'solana' || !userUuid) return;
-        if (!solAddress) {
+        if (payMethod !== 'crypto' || !userUuid) return;
+        if (!cryptoAddresses) {
             setAddrLoading(true);
-            getOrCreateUserSolanaAddress(userUuid, sessionInfo)
-                .then(a => { setSolAddress(a); setAddrLoading(false); })
+            getOrCreateUserCryptoAddresses(userUuid, sessionInfo)
+                .then(data => {
+                    setCryptoAddresses(data);
+                    setSolAddress(data?.solana || data?.address);
+                    setAddrLoading(false);
+                })
                 .catch(() => setAddrLoading(false));
         }
         setPriceLoading(true);
@@ -149,7 +154,7 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
     }, [payMethod, userUuid]);                          // eslint-disable-line
 
     useEffect(() => {
-        if (solUsdPrice && payMethod === 'solana') setRequiredSol(calcSolAmount(selectedPlan, solUsdPrice));
+        if (solUsdPrice && payMethod === 'crypto') setRequiredSol(calcSolAmount(selectedPlan, solUsdPrice));
     }, [selectedPlan, solUsdPrice, payMethod]);
 
     const handleSuccess = useCallback(async (r) => {
@@ -279,22 +284,25 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
                     onSelect={setPayMethod}
                 />
             )}
-            {payMethod === 'stripe' && <StripePanel price={selectedPlan === 'monthly' ? '$8.00/mo' : selectedPlan === 'quarterly' ? '$20.00/3mo' : '$60.00/yr'} onBack={reset} />}
-            {payMethod === 'solana' && (
-                <SolanaPayPanel
-                    solAddress={solAddress} addrLoading={addrLoading}
+            {payMethod === 'crypto' && (
+                <CryptoPayPanel
+                    cryptoAddresses={cryptoAddresses} addrLoading={addrLoading}
                     solUsdPrice={solUsdPrice} priceLoading={priceLoading}
-                    requiredSol={requiredSol}
+                    requiredSol={requiredSol} usdPrice={PLANS[selectedPlan]?.usd}
                     addrCopied={addrCopied} copyAddr={copyAddr}
                     payStatus={payStatus} pollAttempt={pollAttempt} pollMax={pollMax}
                     onStartWatch={startWatch} onSimulate={simulateWatch} onBack={reset}
                     badge={selectedPlan === 'monthly' ? 'Monthly' : selectedPlan === 'quarterly' ? 'Quarterly' : 'Yearly · 38% OFF'}
                     usdLabel={`$${PLANS[selectedPlan]?.usd}`}
-                    instructions={[
-                        'Open any Solana wallet (Phantom, Solflare, etc.)',
-                        `Send exactly <b>${requiredSol ?? '...'} SOL</b> to the address above on <b>Solana Mainnet</b>`,
-                        'Click the button below — Premium activates within ~30 seconds',
-                    ]}
+                />
+            )}
+            {payMethod === 'cryptogate' && (
+                <CryptoGatePanel
+                    plan={selectedPlan}
+                    usdPrice={PLANS[selectedPlan]?.usd}
+                    kind="premium"
+                    sessionInfo={sessionInfo}
+                    onBack={reset}
                 />
             )}
         </div>
@@ -308,6 +316,7 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
     const [selectedPack, setSelectedPack] = useState(null);  // COIN_PACKS item
     const [payMethod, setPayMethod] = useState('');
     const [solAddress, setSolAddress] = useState(null);
+    const [cryptoAddresses, setCryptoAddresses] = useState(null);
     const [addrLoading, setAddrLoading] = useState(false);
     const [solUsdPrice, setSolUsdPrice] = useState(null);
     const [priceLoading, setPriceLoading] = useState(false);
@@ -328,13 +337,17 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
     const selectPack = (pack) => { setSelectedPack(pack); reset(); };
     const goBack = () => { setSelectedPack(null); reset(); };
 
-    // Load address + live price when Solana chosen
+    // Load address + live price when Crypto chosen
     useEffect(() => {
-        if (payMethod !== 'solana' || !userUuid || !selectedPack) return;
-        if (!solAddress) {
+        if (payMethod !== 'crypto' || !userUuid || !selectedPack) return;
+        if (!cryptoAddresses) {
             setAddrLoading(true);
-            getOrCreateUserSolanaAddress(userUuid, sessionInfo)
-                .then(a => { setSolAddress(a); setAddrLoading(false); })
+            getOrCreateUserCryptoAddresses(userUuid, sessionInfo)
+                .then(data => {
+                    setCryptoAddresses(data);
+                    setSolAddress(data?.solana || data?.address);
+                    setAddrLoading(false);
+                })
                 .catch(() => setAddrLoading(false));
         }
         setPriceLoading(true);
@@ -512,41 +525,27 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
                 </>
             )}
 
-            {selectedPack && payMethod === 'stripe' && (
-                <StripePanel price={`$${selectedPack.price.toFixed(2)}`} onBack={reset} />
+            {selectedPack && payMethod === 'crypto' && (
+                <CryptoPayPanel
+                    cryptoAddresses={cryptoAddresses} addrLoading={addrLoading}
+                    solUsdPrice={solUsdPrice} priceLoading={priceLoading}
+                    requiredSol={requiredSol} usdPrice={selectedPack.price}
+                    addrCopied={addrCopied} copyAddr={copyAddr}
+                    payStatus={payStatus} pollAttempt={pollAttempt} pollMax={pollMax}
+                    onStartWatch={startWatch} onSimulate={simulateWatch} onBack={reset}
+                    badge="One-Time Purchase"
+                    usdLabel={`$${selectedPack.price.toFixed(2)}`}
+                />
             )}
 
-            {selectedPack && payMethod === 'solana' && (
-                <>
-                    {/* Pack reminder */}
-                    <div className="flex items-center gap-2 bg-purple-900/20 border border-purple-500/20 rounded-xl px-4 py-2.5">
-                        <Zap size={15} className="text-purple-400 fill-purple-400 flex-shrink-0" />
-                        <span className="text-purple-300 text-sm font-bold">
-                            {selectedPack.coins.toLocaleString()}
-                            {selectedPack.bonus > 0 && ` + ${selectedPack.bonus} bonus`} Bolt Coins
-                        </span>
-                        <span className="ml-auto text-gray-500 text-xs">for ${selectedPack.price.toFixed(2)}</span>
-                        <button onClick={reset} className="text-gray-600 hover:text-gray-400 transition-colors">
-                            <ChevronDown size={14} className="rotate-90" />
-                        </button>
-                    </div>
-
-                    <SolanaPayPanel
-                        solAddress={solAddress} addrLoading={addrLoading}
-                        solUsdPrice={solUsdPrice} priceLoading={priceLoading}
-                        requiredSol={requiredSol}
-                        addrCopied={addrCopied} copyAddr={copyAddr}
-                        payStatus={payStatus} pollAttempt={pollAttempt} pollMax={pollMax}
-                        onStartWatch={startWatch} onSimulate={simulateWatch} onBack={reset}
-                        badge="One-Time Purchase"
-                        usdLabel={`$${selectedPack.price.toFixed(2)}`}
-                        instructions={[
-                            'Open any Solana wallet (Phantom, Solflare, etc.)',
-                            `Send exactly <b>${requiredSol ?? '...'} SOL</b> to the address on <b>Solana Mainnet</b>`,
-                            'Click the button below — coins are credited within ~30 seconds',
-                        ]}
-                    />
-                </>
+            {selectedPack && payMethod === 'cryptogate' && (
+                <CryptoGatePanel
+                    pack={selectedPack}
+                    usdPrice={selectedPack.price}
+                    kind="coins"
+                    sessionInfo={sessionInfo}
+                    onBack={reset}
+                />
             )}
         </div>
     );
@@ -604,54 +603,52 @@ function PaymentPicker({ label, usdPrice, requiredSol, priceLoading, userUuid, o
         <div className="space-y-3">
             <p className="text-center text-xs text-gray-500 uppercase tracking-wider font-semibold">Choose Payment Method</p>
 
-            {/* Stripe */}
-            <button
-                onClick={() => onSelect('stripe')}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-700/60 bg-gray-900/40 hover:border-blue-500/40 hover:bg-blue-900/10 transition-all group"
-            >
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow">
-                    <CreditCard size={22} className="text-white" />
-                </div>
-                <div className="flex-1 text-left">
-                    <p className="text-white font-bold text-sm">Credit / Debit Card</p>
-                    <p className="text-gray-500 text-xs mt-0.5">{label} · Via Stripe · Visa, Mastercard, AMEX</p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <Shield size={13} className="text-blue-400" />
-                    <span className="text-blue-400 text-xs font-semibold">Secure</span>
-                    <ChevronRight size={15} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
-                </div>
-            </button>
-
-            {/* Solana */}
+            {/* Unified Crypto */}
             {userUuid ? (
-                <button
-                    onClick={() => onSelect('solana')}
-                    className="w-full flex items-center gap-4 p-4 rounded-2xl border border-purple-700/40 bg-gradient-to-r from-purple-950/50 to-indigo-950/50 hover:border-purple-400/60 hover:bg-purple-900/20 transition-all group shimmer-btn"
-                >
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(147,51,234,0.4)]">
-                        <SolanaLogo />
-                    </div>
-                    <div className="flex-1 text-left">
-                        <div className="flex items-center gap-2">
-                            <p className="text-white font-bold text-sm">Solana (SOL)</p>
-                            <span className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full uppercase border border-purple-500/30">Crypto</span>
+                <>
+                    {/* Previous Crypto Gateway Restored */}
+                    <button
+                        onClick={() => onSelect('crypto')}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-purple-700/40 bg-gradient-to-r from-purple-950/50 to-indigo-950/50 hover:border-purple-400/60 hover:bg-purple-900/20 transition-all group shimmer-btn"
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(147,51,234,0.4)]">
+                            <Coins size={22} className="text-white" />
                         </div>
-                        <p className="text-gray-500 text-xs mt-0.5">
-                            {priceLoading
-                                ? 'Fetching live SOL price...'
-                                : requiredSol
-                                    ? `${requiredSol} SOL = ${label} · Instant on-chain`
-                                    : `${label} in SOL · Live rate`}
-                        </p>
-                    </div>
-                    <ChevronRight size={15} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
-                </button>
+                        <div className="flex-1 text-left">
+                            <div className="flex items-center gap-2">
+                                <p className="text-white font-bold text-sm">Crypto Payment</p>
+                                <span className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full uppercase border border-purple-500/30">Tokens</span>
+                            </div>
+                            <p className="text-gray-500 text-xs mt-0.5">
+                                Pay with SOL, USDT, or USDC
+                            </p>
+                        </div>
+                        <ChevronRight size={15} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
+                    </button>
+                    <button
+                        onClick={() => onSelect('cryptogate')}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-blue-700/40 bg-gradient-to-r from-blue-950/50 to-cyan-950/50 hover:border-blue-400/60 hover:bg-blue-900/20 transition-all group shimmer-btn"
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(59,130,246,0.4)]">
+                            <Coins size={22} className="text-white" />
+                        </div>
+                        <div className="flex-1 text-left">
+                            <div className="flex items-center gap-2">
+                                <p className="text-white font-bold text-sm">Crypto Payment (CryptoGate)</p>
+                                <span className="text-[10px] font-black bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full uppercase border border-blue-500/30">New</span>
+                            </div>
+                            <p className="text-gray-500 text-xs mt-0.5">
+                                Pay securely with CryptoGate (USDC / LTC)
+                            </p>
+                        </div>
+                        <ChevronRight size={15} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
+                    </button>
+                </>
             ) : (
                 <div className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-800 bg-gray-900/30 opacity-50 cursor-not-allowed">
-                    <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center"><Zap size={20} className="text-gray-600" /></div>
+                    <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center"><Coins size={20} className="text-gray-600" /></div>
                     <div>
-                        <p className="text-gray-500 font-bold text-sm">Solana (SOL)</p>
+                        <p className="text-gray-500 font-bold text-sm">Crypto Payment</p>
                         <p className="text-gray-600 text-xs">Sign in to use crypto payment</p>
                     </div>
                 </div>
@@ -694,14 +691,101 @@ function StripePanel({ price, onBack }) {
     );
 }
 
-// ─── Solana Pay Panel (shared by Premium + Coins) ─────────────────────────────
-function SolanaPayPanel({
-    solAddress, addrLoading, solUsdPrice, priceLoading, requiredSol,
+// ─── CryptoGate Gateway Panel ──────────────────────────────────────────────────
+function CryptoGatePanel({ plan, pack, usdPrice, kind, sessionInfo, onBack }) {
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const handleCheckout = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await backendJson('/api/payments/cryptogate/create', {
+                method: 'POST',
+                sessionInfo,
+                body: { amount: usdPrice, kind, plan, pack }
+            });
+
+            if (data?.checkout_url) {
+                window.location.href = data.checkout_url;
+            } else {
+                throw new Error('Failed to retrieve checkout URL from gateway.');
+            }
+        } catch (err) {
+            console.error('[CryptoGate] Checkout error:', err);
+            setError(err.message || 'Payment initiation failed.');
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="bg-gray-900/60 border border-blue-500/20 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <button onClick={onBack} className="p-1.5 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-white transition-colors" disabled={loading}>
+                        <ChevronDown size={16} className="rotate-90" />
+                    </button>
+                    <Coins size={18} className="text-blue-400" />
+                    <h3 className="text-white font-bold">CryptoGate Checkout</h3>
+                </div>
+                <div className="text-right">
+                    <p className="text-gray-400 text-xs">Total Due</p>
+                    <p className="text-white font-black text-lg">${usdPrice.toFixed(2)}</p>
+                </div>
+            </div>
+
+            <div className="bg-blue-900/10 border border-blue-500/20 rounded-xl p-4 flex flex-col items-center gap-3 text-center">
+                <Shield size={24} className="text-blue-400" />
+                <p className="text-blue-300 font-semibold text-sm">Secure Crypto Payment</p>
+                <p className="text-blue-400/80 text-xs leading-relaxed max-w-xs">
+                    You'll be redirected to CryptoGate to complete your payment securely via USDC or LTC.
+                </p>
+            </div>
+
+            {error && (
+                <div className="p-3 bg-red-900/20 border border-red-500/30 rounded-xl text-red-400 text-xs text-center font-medium">
+                    {error}
+                </div>
+            )}
+
+            <button
+                onClick={handleCheckout}
+                disabled={loading}
+                className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition-colors flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(37,99,235,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                {loading ? (
+                    <><Loader2 size={16} className="animate-spin" /> Redirecting...</>
+                ) : (
+                    <>Proceed to Checkout <ChevronRight size={16} /></>
+                )}
+            </button>
+        </div>
+    );
+}
+
+function CryptoPayPanel({
+    cryptoAddresses, addrLoading, solUsdPrice, priceLoading, requiredSol, usdPrice,
     addrCopied, copyAddr, payStatus, pollAttempt, pollMax,
-    onStartWatch, onSimulate, onBack, badge, usdLabel, instructions,
+    onStartWatch, onSimulate, onBack, badge, usdLabel,
 }) {
+    const [selectedCoin, setSelectedCoin] = useState('SOL');
     const isWaiting = payStatus === 'waiting' || payStatus === 'checking';
     const pct = pollMax > 0 ? Math.min((pollAttempt / pollMax) * 100, 100) : 0;
+
+    const address = selectedCoin === 'USDT' ? cryptoAddresses?.tron : (selectedCoin === 'USDC' ? cryptoAddresses?.base : cryptoAddresses?.solana);
+    const amount = selectedCoin === 'SOL' ? requiredSol : parseFloat(usdPrice).toFixed(2);
+
+    let networkName = 'Solana Mainnet';
+    if (selectedCoin === 'USDT') networkName = 'Tron (TRC-20)';
+    else if (selectedCoin === 'USDC') networkName = 'Base (ERC-20)';
+
+    const getQrValue = () => {
+        if (!address) return '';
+        if (selectedCoin === 'SOL') {
+            return amount ? `solana:${address}?amount=${amount}&label=DreamAI` : address;
+        }
+        return address;
+    };
 
     return (
         <div className="bg-gray-900/60 border border-purple-500/20 rounded-2xl p-5 space-y-4">
@@ -713,16 +797,30 @@ function SolanaPayPanel({
                     </button>
                 )}
                 <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                    <Zap size={12} className="text-white" fill="currentColor" />
+                    <Coins size={12} className="text-white" />
                 </div>
-                <h3 className="text-white font-bold">Pay with Solana</h3>
+                <h3 className="text-white font-bold">Pay with Crypto</h3>
                 <span className="ml-auto text-xs font-semibold bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30">{badge}</span>
+            </div>
+
+            {/* Coin Tabs */}
+            <div className="flex bg-gray-950 p-1 rounded-xl">
+                {['SOL', 'USDT', 'USDC'].map(coin => (
+                    <button
+                        key={coin}
+                        disabled={isWaiting}
+                        onClick={() => setSelectedCoin(coin)}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${selectedCoin === coin ? 'bg-purple-600 text-white shadow' : 'text-gray-500 hover:text-white hover:bg-gray-800'} ${isWaiting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        {coin}
+                    </button>
+                ))}
             </div>
 
             {/* Amount */}
             <div className="bg-gray-950/80 rounded-xl border border-purple-800/40 p-4">
                 <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold text-center mb-2">Send Exactly</p>
-                {priceLoading || !requiredSol ? (
+                {(selectedCoin === 'SOL' && (priceLoading || !requiredSol)) ? (
                     <div className="flex items-center justify-center gap-2 py-1">
                         <Loader2 size={18} className="text-purple-400 animate-spin" />
                         <span className="text-gray-400 text-sm">Fetching live SOL price...</span>
@@ -730,16 +828,20 @@ function SolanaPayPanel({
                 ) : (
                     <>
                         <div className="flex items-baseline justify-center gap-2">
-                            <span className="text-4xl font-black text-white">{requiredSol}</span>
-                            <span className="text-purple-400 font-bold text-xl">SOL</span>
+                            <span className="text-4xl font-black text-white">{amount}</span>
+                            <span className="text-purple-400 font-bold text-xl ml-2">{selectedCoin}</span>
                         </div>
                         <div className="flex items-center justify-center gap-3 mt-1.5">
                             <span className="text-gray-500 text-xs">= {usdLabel} USD</span>
-                            <span className="text-gray-700">·</span>
-                            <span className="text-xs text-green-400/80 flex items-center gap-1">
-                                <TrendingDown size={11} />
-                                1 SOL = ${solUsdPrice?.toFixed(2)}
-                            </span>
+                            {selectedCoin === 'SOL' && (
+                                <>
+                                    <span className="text-gray-700">·</span>
+                                    <span className="text-xs text-green-400/80 flex items-center gap-1">
+                                        <TrendingDown size={11} />
+                                        1 SOL = ${solUsdPrice?.toFixed(2)}
+                                    </span>
+                                </>
+                            )}
                         </div>
                     </>
                 )}
@@ -752,15 +854,13 @@ function SolanaPayPanel({
                     <p className="text-gray-400 text-sm">Loading your payment address...</p>
                     <p className="text-gray-600 text-xs">Permanently linked to your account</p>
                 </div>
-            ) : solAddress ? (
+            ) : address ? (
                 <div className="space-y-4">
                     {/* QR */}
                     <div className="flex justify-center">
                         <div className="bg-white p-3 rounded-2xl" style={{ animation: 'glow-pulse 3s ease-in-out infinite' }}>
                             <QRCodeSVG
-                                value={requiredSol
-                                    ? `solana:${solAddress}?amount=${requiredSol}&label=DreamAI`
-                                    : solAddress}
+                                value={getQrValue()}
                                 size={160} level="M" includeMargin={false} fgColor="#1a0533"
                             />
                         </div>
@@ -771,13 +871,13 @@ function SolanaPayPanel({
                         <div className="flex items-center justify-between mb-2">
                             <p className="text-gray-500 text-xs uppercase tracking-wider font-semibold">Payment Address</p>
                             <span className="text-[10px] text-green-400/70 font-semibold bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20">
-                                Permanent · Your account
+                                {networkName}
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <code className="text-purple-300 text-xs font-mono flex-1 break-all leading-relaxed">{solAddress}</code>
+                            <code className="text-purple-300 text-xs font-mono flex-1 break-all leading-relaxed">{address}</code>
                             <button
-                                onClick={() => copyAddr(solAddress)}
+                                onClick={() => copyAddr(address)}
                                 className={`flex-shrink-0 p-2 rounded-lg transition-all ${addrCopied ? 'bg-green-500/20 text-green-400' : 'bg-gray-800 text-gray-400 hover:bg-purple-800/40 hover:text-purple-300'}`}
                             >
                                 {addrCopied ? <Check size={14} /> : <Copy size={14} />}
@@ -791,20 +891,32 @@ function SolanaPayPanel({
                             <AlertCircle size={12} />How to Pay
                         </p>
                         <ol className="text-amber-300/80 text-xs space-y-1.5 pl-1">
-                            {instructions.map((step, i) => (
-                                <li key={i} dangerouslySetInnerHTML={{ __html: `${i + 1}. ${step}` }} />
-                            ))}
+                            {selectedCoin === 'SOL' ? (
+                                <>
+                                    <li>1. Open any Solana wallet (Phantom, Solflare, etc.)</li>
+                                    <li>2. Send exactly <b>{requiredSol ?? '...'} SOL</b> to the address above on <b>Solana Mainnet</b></li>
+                                    <li>3. Click the button below — Payment activates within ~30 seconds</li>
+                                </>
+                            ) : (
+                                <>
+                                    <li>1. Open any wallet supporting {selectedCoin}</li>
+                                    <li>2. Send exactly <b>{amount} {selectedCoin}</b> to the address above on <b>{networkName}</b></li>
+                                    <li>3. Payment will be processed manually or via off-chain tracking.</li>
+                                </>
+                            )}
                         </ol>
                     </div>
 
                     {/* Solscan */}
-                    <a href={explorerUrl(solAddress)} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-purple-400 transition-colors justify-center">
-                        <ExternalLink size={11} />View address on Solscan
-                    </a>
+                    {selectedCoin === 'SOL' && (
+                        <a href={explorerUrl(address)} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-purple-400 transition-colors justify-center">
+                            <ExternalLink size={11} />View address on Solscan
+                        </a>
+                    )}
 
                     {/* CTA */}
-                    {payStatus === 'idle' && requiredSol && (
+                    {selectedCoin === 'SOL' && payStatus === 'idle' && requiredSol && (
                         <div className="space-y-2">
                             <button
                                 onClick={onStartWatch}
@@ -821,8 +933,16 @@ function SolanaPayPanel({
                             </button>
                         </div>
                     )}
-                    {!requiredSol && payStatus === 'idle' && (
-                        <p className="text-center text-yellow-400 text-xs animate-pulse">Fetching current SOL price...</p>
+                    {(selectedCoin === 'USDT' || selectedCoin === 'USDC') && (
+                        <div className="text-center mt-4">
+                            <button
+                                onClick={onBack}
+                                className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-base hover:shadow-[0_0_35px_rgba(59,130,246,0.5)] hover:scale-[1.02] active:scale-95 transition-all"
+                            >
+                                Done
+                            </button>
+                            <p className="text-xs text-gray-500 mt-3">Once sent, please allow some time for manual verification.</p>
+                        </div>
                     )}
 
                     {/* Waiting */}
