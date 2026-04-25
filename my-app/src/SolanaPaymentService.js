@@ -126,10 +126,72 @@ export async function checkSolanaPayment(userAddress, requiredSolAmount, since =
     }
 }
 
-export function pollForPayment(userAddress, requiredSol, {
+export async function checkTronPayment(userAddress, requiredUsdtAmount, since = null) {
+    try {
+        const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+        const url = `https://api.trongrid.io/v1/accounts/${userAddress}/transactions/trc20?contract_address=${TRON_USDT_CONTRACT}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success || !data.data) return { paid: false };
+
+        for (const tx of data.data) {
+            const blockTime = Number(tx.block_timestamp); // ms
+            if (since && blockTime < since) continue;
+
+            const amount = Number(tx.value) / Math.pow(10, tx.token_info.decimals);
+            if (amount >= requiredUsdtAmount * 0.95) {
+                return {
+                    paid: true,
+                    amount,
+                    signature: tx.transaction_id,
+                    timestamp: blockTime
+                };
+            }
+        }
+        return { paid: false };
+    } catch (err) {
+        console.error('[Tron] checkTronPayment error:', err);
+        return { paid: false, error: err.message };
+    }
+}
+
+export async function checkBasePayment(userAddress, requiredUsdcAmount, since = null) {
+    try {
+        const BASE_USDC_CONTRACT = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+        // Public BaseScan endpoint (may rate limit without key, but better than nothing)
+        const url = `https://api.basescan.org/api?module=account&action=tokentx&address=${userAddress}&contractaddress=${BASE_USDC_CONTRACT}&page=1&offset=10&sort=desc`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status !== '1' || !data.result) return { paid: false };
+
+        for (const tx of data.result) {
+            const blockTime = Number(tx.timeStamp) * 1000; // ms
+            if (since && blockTime < since) continue;
+
+            const amount = Number(tx.value) / Math.pow(10, tx.tokenDecimal);
+            if (amount >= requiredUsdcAmount * 0.95) {
+                return {
+                    paid: true,
+                    amount,
+                    signature: tx.hash,
+                    timestamp: blockTime
+                };
+            }
+        }
+        return { paid: false };
+    } catch (err) {
+        console.error('[Base] checkBasePayment error:', err);
+        return { paid: false, error: err.message };
+    }
+}
+
+export function pollForPayment(userAddress, requiredAmount, {
     onPaid,
     onTick,
     onError,
+    coin = 'SOL',
     intervalMs = 15000,
     maxAttempts = 40,
 } = {}) {
@@ -143,7 +205,15 @@ export function pollForPayment(userAddress, requiredSol, {
         if (onTick) onTick(attempt, maxAttempts);
 
         try {
-            const result = await checkSolanaPayment(userAddress, requiredSol, since);
+            let result = { paid: false };
+            if (coin === 'SOL') {
+                result = await checkSolanaPayment(userAddress, requiredAmount, since);
+            } else if (coin === 'USDT') {
+                result = await checkTronPayment(userAddress, requiredAmount, since);
+            } else if (coin === 'USDC') {
+                result = await checkBasePayment(userAddress, requiredAmount, since);
+            }
+
             if (result.paid) {
                 if (onPaid) onPaid(result);
                 return;

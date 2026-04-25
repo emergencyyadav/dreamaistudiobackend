@@ -125,6 +125,7 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
     const [pollAttempt, setPollAttempt] = useState(0);
     const [pollMax, setPollMax] = useState(40);
     const [txSig, setTxSig] = useState(null);
+    const [selectedCoin, setSelectedCoin] = useState('SOL');
     const cancelRef = useRef(null);
 
     const reset = useCallback(() => {
@@ -161,15 +162,16 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
         setPayStatus('success'); setTxSig(r.signature); cancelRef.current = null;
         try {
             if (hasBackend) {
-                await backendJson('/api/payments/solana/confirm', {
+                await backendJson('/api/payments/crypto/confirm', {
                     method: 'POST',
                     sessionInfo,
                     body: {
                         kind: 'premium',
                         plan: selectedPlan,
                         signature: r.signature,
-                        requiredSol,
-                        solAddress,
+                        requiredAmount: r.amount,
+                        address: selectedCoin === 'USDT' ? cryptoAddresses?.tron : (selectedCoin === 'USDC' ? cryptoAddresses?.base : cryptoAddresses?.solana),
+                        coin: selectedCoin,
                     }
                 });
             } else {
@@ -190,19 +192,23 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
             }
             if (onPremiumGranted) onPremiumGranted({ plan: selectedPlan, txSig: r.signature });
         } catch (e) { console.error('[Premium] grant error', e); }
-    }, [selectedPlan, requiredSol, solAddress, userUuid, sessionInfo, onPremiumGranted]);
+    }, [selectedPlan, requiredSol, solAddress, userUuid, sessionInfo, onPremiumGranted, selectedCoin, cryptoAddresses]);
 
     const startWatch = useCallback(() => {
-        if (!solAddress || !requiredSol) return;
+        const addr = selectedCoin === 'USDT' ? cryptoAddresses?.tron : (selectedCoin === 'USDC' ? cryptoAddresses?.base : cryptoAddresses?.solana);
+        const amt = selectedCoin === 'SOL' ? requiredSol : PLANS[selectedPlan].usd;
+
+        if (!addr || !amt) return;
         if (cancelRef.current) cancelRef.current();
         setPayStatus('waiting'); setPollAttempt(0);
 
-        cancelRef.current = pollForPayment(solAddress, requiredSol, {
+        cancelRef.current = pollForPayment(addr, amt, {
             onTick: (a, m) => { setPollAttempt(a); setPollMax(m); setPayStatus('checking'); },
             onPaid: handleSuccess,
-            onError: e => console.error('[Solana]', e),
+            onError: e => console.error(`[${selectedCoin}]`, e),
+            coin: selectedCoin
         });
-    }, [solAddress, requiredSol, handleSuccess]);
+    }, [selectedCoin, cryptoAddresses, requiredSol, selectedPlan, handleSuccess]);
 
     const simulateWatch = useCallback(() => {
         if (!solAddress || !requiredSol) return;
@@ -291,20 +297,13 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
                     requiredSol={requiredSol} usdPrice={PLANS[selectedPlan]?.usd}
                     addrCopied={addrCopied} copyAddr={copyAddr}
                     payStatus={payStatus} pollAttempt={pollAttempt} pollMax={pollMax}
+                    selectedCoin={selectedCoin} setSelectedCoin={setSelectedCoin}
                     onStartWatch={startWatch} onSimulate={simulateWatch} onBack={reset}
                     badge={selectedPlan === 'monthly' ? 'Monthly' : selectedPlan === 'quarterly' ? 'Quarterly' : 'Yearly · 38% OFF'}
                     usdLabel={`$${PLANS[selectedPlan]?.usd}`}
                 />
             )}
-            {payMethod === 'cryptogate' && (
-                <CryptoGatePanel
-                    plan={selectedPlan}
-                    usdPrice={PLANS[selectedPlan]?.usd}
-                    kind="premium"
-                    sessionInfo={sessionInfo}
-                    onBack={reset}
-                />
-            )}
+
         </div>
     );
 }
@@ -326,6 +325,7 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
     const [pollAttempt, setPollAttempt] = useState(0);
     const [pollMax, setPollMax] = useState(40);
     const [txSig, setTxSig] = useState(null);
+    const [selectedCoin, setSelectedCoin] = useState('SOL');
     const cancelRef = useRef(null);
 
     const reset = useCallback(() => {
@@ -367,14 +367,15 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
             const newBalance = (coinBalance || 0) + totalCoins;
 
             if (hasBackend) {
-                const result = await backendJson('/api/payments/solana/confirm', {
+                const result = await backendJson('/api/payments/crypto/confirm', {
                     method: 'POST',
                     sessionInfo,
                     body: {
                         kind: 'coins',
                         signature: r.signature,
-                        requiredSol,
-                        solAddress,
+                        requiredAmount: r.amount,
+                        address: selectedCoin === 'USDT' ? cryptoAddresses?.tron : (selectedCoin === 'USDC' ? cryptoAddresses?.base : cryptoAddresses?.solana),
+                        coin: selectedCoin,
                         pack: selectedPack,
                     }
                 });
@@ -395,19 +396,23 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
                 if (onCoinsAdded) onCoinsAdded(newBalance);
             }
         } catch (e) { console.error('[Coins] credit error', e); }
-    }, [selectedPack, coinBalance, requiredSol, solAddress, userUuid, sessionInfo, onCoinsAdded]);
+    }, [selectedPack, coinBalance, requiredSol, solAddress, userUuid, sessionInfo, onCoinsAdded, selectedCoin, cryptoAddresses]);
 
     const startWatch = useCallback(() => {
-        if (!solAddress || !requiredSol || !selectedPack) return;
+        const addr = selectedCoin === 'USDT' ? cryptoAddresses?.tron : (selectedCoin === 'USDC' ? cryptoAddresses?.base : cryptoAddresses?.solana);
+        const amt = selectedCoin === 'SOL' ? requiredSol : selectedPack?.price;
+
+        if (!addr || !amt || !selectedPack) return;
         if (cancelRef.current) cancelRef.current();
         setPayStatus('waiting'); setPollAttempt(0);
 
-        cancelRef.current = pollForPayment(solAddress, requiredSol, {
+        cancelRef.current = pollForPayment(addr, amt, {
             onTick: (a, m) => { setPollAttempt(a); setPollMax(m); setPayStatus('checking'); },
             onPaid: handleSuccess,
-            onError: e => console.error('[Solana]', e),
+            onError: e => console.error(`[${selectedCoin}]`, e),
+            coin: selectedCoin
         });
-    }, [solAddress, requiredSol, selectedPack, handleSuccess]);
+    }, [selectedCoin, cryptoAddresses, requiredSol, selectedPack, handleSuccess]);
 
     const simulateWatch = useCallback(() => {
         if (!solAddress || !requiredSol || !selectedPack) return;
@@ -532,21 +537,14 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
                     requiredSol={requiredSol} usdPrice={selectedPack.price}
                     addrCopied={addrCopied} copyAddr={copyAddr}
                     payStatus={payStatus} pollAttempt={pollAttempt} pollMax={pollMax}
+                    selectedCoin={selectedCoin} setSelectedCoin={setSelectedCoin}
                     onStartWatch={startWatch} onSimulate={simulateWatch} onBack={reset}
                     badge="One-Time Purchase"
                     usdLabel={`$${selectedPack.price.toFixed(2)}`}
                 />
             )}
 
-            {selectedPack && payMethod === 'cryptogate' && (
-                <CryptoGatePanel
-                    pack={selectedPack}
-                    usdPrice={selectedPack.price}
-                    kind="coins"
-                    sessionInfo={sessionInfo}
-                    onBack={reset}
-                />
-            )}
+
         </div>
     );
 }
@@ -605,45 +603,24 @@ function PaymentPicker({ label, usdPrice, requiredSol, priceLoading, userUuid, o
 
             {/* Unified Crypto */}
             {userUuid ? (
-                <>
-                    {/* Previous Crypto Gateway Restored */}
-                    <button
-                        onClick={() => onSelect('crypto')}
-                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-purple-700/40 bg-gradient-to-r from-purple-950/50 to-indigo-950/50 hover:border-purple-400/60 hover:bg-purple-900/20 transition-all group shimmer-btn"
-                    >
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(147,51,234,0.4)]">
-                            <Coins size={22} className="text-white" />
+                <button
+                    onClick={() => onSelect('crypto')}
+                    className="w-full flex items-center gap-4 p-4 rounded-2xl border border-purple-700/40 bg-gradient-to-r from-purple-950/50 to-indigo-950/50 hover:border-purple-400/60 hover:bg-purple-900/20 transition-all group shimmer-btn"
+                >
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(147,51,234,0.4)]">
+                        <Coins size={22} className="text-white" />
+                    </div>
+                    <div className="flex-1 text-left">
+                        <div className="flex items-center gap-2">
+                            <p className="text-white font-bold text-sm">Crypto Payment</p>
+                            <span className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full uppercase border border-purple-500/30">Secure</span>
                         </div>
-                        <div className="flex-1 text-left">
-                            <div className="flex items-center gap-2">
-                                <p className="text-white font-bold text-sm">Crypto Payment</p>
-                                <span className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full uppercase border border-purple-500/30">Tokens</span>
-                            </div>
-                            <p className="text-gray-500 text-xs mt-0.5">
-                                Pay with SOL, USDT, or USDC
-                            </p>
-                        </div>
-                        <ChevronRight size={15} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
-                    </button>
-                    <button
-                        onClick={() => onSelect('cryptogate')}
-                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-blue-700/40 bg-gradient-to-r from-blue-950/50 to-cyan-950/50 hover:border-blue-400/60 hover:bg-blue-900/20 transition-all group shimmer-btn"
-                    >
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(59,130,246,0.4)]">
-                            <Coins size={22} className="text-white" />
-                        </div>
-                        <div className="flex-1 text-left">
-                            <div className="flex items-center gap-2">
-                                <p className="text-white font-bold text-sm">Crypto Payment (CryptoGate)</p>
-                                <span className="text-[10px] font-black bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full uppercase border border-blue-500/30">New</span>
-                            </div>
-                            <p className="text-gray-500 text-xs mt-0.5">
-                                Pay securely with CryptoGate (USDC / LTC)
-                            </p>
-                        </div>
-                        <ChevronRight size={15} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
-                    </button>
-                </>
+                        <p className="text-gray-500 text-xs mt-0.5">
+                            Pay with SOL, USDT (TRC-20), or USDC (Base)
+                        </p>
+                    </div>
+                    <ChevronRight size={15} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
+                </button>
             ) : (
                 <div className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-800 bg-gray-900/30 opacity-50 cursor-not-allowed">
                     <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center"><Coins size={20} className="text-gray-600" /></div>
@@ -766,9 +743,9 @@ function CryptoGatePanel({ plan, pack, usdPrice, kind, sessionInfo, onBack }) {
 function CryptoPayPanel({
     cryptoAddresses, addrLoading, solUsdPrice, priceLoading, requiredSol, usdPrice,
     addrCopied, copyAddr, payStatus, pollAttempt, pollMax,
+    selectedCoin, setSelectedCoin,
     onStartWatch, onSimulate, onBack, badge, usdLabel,
 }) {
-    const [selectedCoin, setSelectedCoin] = useState('SOL');
     const isWaiting = payStatus === 'waiting' || payStatus === 'checking';
     const pct = pollMax > 0 ? Math.min((pollAttempt / pollMax) * 100, 100) : 0;
 
@@ -804,15 +781,20 @@ function CryptoPayPanel({
             </div>
 
             {/* Coin Tabs */}
-            <div className="flex bg-gray-950 p-1 rounded-xl">
-                {['SOL', 'USDT', 'USDC'].map(coin => (
+            <div className="flex bg-gray-950 p-1 rounded-xl gap-1">
+                {[
+                    { id: 'SOL', label: 'SOL', sub: 'Solana' },
+                    { id: 'USDT', label: 'USDT', sub: 'TRC-20' },
+                    { id: 'USDC', label: 'USDC', sub: 'Base' },
+                ].map(coin => (
                     <button
-                        key={coin}
+                        key={coin.id}
                         disabled={isWaiting}
-                        onClick={() => setSelectedCoin(coin)}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${selectedCoin === coin ? 'bg-purple-600 text-white shadow' : 'text-gray-500 hover:text-white hover:bg-gray-800'} ${isWaiting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        onClick={() => setSelectedCoin(coin.id)}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors flex flex-col items-center ${selectedCoin === coin.id ? 'bg-purple-600 text-white shadow' : 'text-gray-500 hover:text-white hover:bg-gray-800'} ${isWaiting ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
-                        {coin}
+                        <span>{coin.label}</span>
+                        <span className={`text-[9px] mt-0.5 ${selectedCoin === coin.id ? 'text-purple-200' : 'text-gray-600'}`}>{coin.sub}</span>
                     </button>
                 ))}
             </div>
@@ -915,8 +897,8 @@ function CryptoPayPanel({
                         </a>
                     )}
 
-                    {/* CTA */}
-                    {selectedCoin === 'SOL' && payStatus === 'idle' && requiredSol && (
+                    {/* Verify Button for all coins */}
+                    {payStatus === 'idle' && (
                         <div className="space-y-2">
                             <button
                                 onClick={onStartWatch}
@@ -925,17 +907,6 @@ function CryptoPayPanel({
                                 <CheckCircle2 size={18} />
                                 I've Sent Payment — Verify Now
                             </button>
-                        </div>
-                    )}
-                    {(selectedCoin === 'USDT' || selectedCoin === 'USDC') && (
-                        <div className="text-center mt-4">
-                            <button
-                                onClick={onBack}
-                                className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-base hover:shadow-[0_0_35px_rgba(59,130,246,0.5)] hover:scale-[1.02] active:scale-95 transition-all"
-                            >
-                                Done
-                            </button>
-                            <p className="text-xs text-gray-500 mt-3">Once sent, please allow some time for manual verification.</p>
                         </div>
                     )}
 
