@@ -1265,7 +1265,7 @@ const server = createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && (requestUrl.pathname === '/api/webhooks/crypto' || requestUrl.pathname === '/')) {
+        if (req.method === 'POST' && (requestUrl.pathname === '/api/webhooks/crypto' || requestUrl.pathname === '/api/webhook/crypto' || requestUrl.pathname === '/')) {
             const payload = await readJson(req);
             
             const signature = req.headers['x-cryptogate-signature'];
