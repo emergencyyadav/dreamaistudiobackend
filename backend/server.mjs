@@ -311,8 +311,8 @@ async function readJson(req) {
     }
 
     if (chunks.length === 0) return {};
-    const raw = Buffer.concat(chunks).toString('utf8').trim();
-    if (!raw) return {};
+    const raw = Buffer.concat(chunks).toString('utf8');
+    if (!raw.trim()) return {};
     req.rawBody = raw;
     try {
         return JSON.parse(raw);
