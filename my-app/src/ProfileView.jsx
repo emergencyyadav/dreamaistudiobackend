@@ -126,7 +126,7 @@ export default function ProfileView({ onLogout, refreshKey = 0, onReadTerms, onF
                 const metadata = session.user.user_metadata || {};
                 const { data: dbUser } = await supabase
                     .from('users')
-                    .select('is_premium')
+                    .select('is_premium, username')
                     .eq('uuid', session.user.id)
                     .single();
                 setUser({

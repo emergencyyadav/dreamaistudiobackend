@@ -43,40 +43,33 @@ function renderMessage(text, isUser = false) {
     if (!text) return null;
 
     const actionClass = isUser
-        ? "text-fuchsia-200 font-bold italic tracking-wide drop-shadow-md"
-        : "text-purple-300/90 font-medium italic tracking-wide";
+        ? "text-fuchsia-200 font-bold italic tracking-wide"
+        : "text-purple-400 font-medium italic tracking-wide";
 
-    if (text.includes('![')) {
-        const parts = text.split(/(!\[.*?\]\(.*?\))/g);
-        return parts.map((part, i) => {
-            if (part.startsWith('![') && part.includes('](')) {
-                const urlMatch = part.match(/\((.*?)\)/);
-                if (urlMatch) {
-                    return <img key={i} src={urlMatch[1]} alt="Generated" className="mt-2 mb-2 rounded-2xl w-full max-w-xs md:max-w-sm shadow-xl border border-white/10 object-cover cursor-pointer hover:opacity-90 transition-opacity" onClick={() => window.open(urlMatch[1], '_blank')} />;
-                }
-            } else if (part.trim() !== '') {
-                const innerParts = part.split(/(\*[^*\n]+\*)/g);
-                return innerParts.map((sub, j) => {
-                    if (sub.startsWith('*') && sub.endsWith('*') && sub.length > 2) {
-                        return <em key={`${i}-${j}`} className={actionClass}>{sub.slice(1, -1)}</em>;
-                    }
-                    return <span key={`${i}-${j}`}>{sub}</span>;
-                });
+    // Split by images first
+    const imgParts = text.split(/(!\[.*?\]\(.*?\))/g);
+    
+    return imgParts.map((part, i) => {
+        if (part.startsWith('![') && part.includes('](')) {
+            const urlMatch = part.match(/\((.*?)\)/);
+            if (urlMatch) {
+                return <img key={i} src={urlMatch[1]} alt="Generated" className="mt-2 mb-2 rounded-2xl w-full max-w-xs md:max-w-sm shadow-xl border border-white/10 object-cover cursor-pointer hover:opacity-90 transition-opacity" onClick={() => window.open(urlMatch[1], '_blank')} />;
             }
-            return null;
-        });
-    }
-
-    const parts = text.split(/(\*[^*\n]+\*)/g);
-    return parts.map((part, i) => {
-        if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-            return (
-                <em key={i} className={actionClass}>
-                    {part.slice(1, -1)}
-                </em>
-            );
+        } else if (part.trim() !== '') {
+            // Split by *...*, (...), [...]
+            const subParts = part.split(/(\*[^*\n]+\*|\([^)\n]+\)|\[[^\]\n]+\])/g);
+            return subParts.map((sub, j) => {
+                const isThought = (sub.startsWith('*') && sub.endsWith('*')) || 
+                                 (sub.startsWith('(') && sub.endsWith(')')) || 
+                                 (sub.startsWith('[') && sub.endsWith(']'));
+                
+                if (isThought && sub.length > 2) {
+                    return <em key={`${i}-${j}`} className={actionClass}>{sub}</em>;
+                }
+                return <span key={`${i}-${j}`} className={isUser ? "text-white" : "text-gray-100"}>{sub}</span>;
+            });
         }
-        return <span key={i}>{part}</span>;
+        return null;
     });
 }
 

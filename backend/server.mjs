@@ -1,4 +1,10 @@
 import { createServer } from 'http';
+import crypto from 'crypto';
+import dns from 'dns';
+
+// Fix for Node.js 18+ undici fetch IPv6 timeout issues on Windows
+dns.setDefaultResultOrder('ipv4first');
+
 import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -11,7 +17,11 @@ import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { ethers } from 'ethers';
-import crypto from 'crypto';
+
+
+const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+const BASE_USDC_CONTRACT = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const BASE_RPC = 'https://mainnet.base.org';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const localEnvPath = resolve(__dirname, '.env');
@@ -67,6 +77,9 @@ const env = {
     solanaMasterSeed: process.env.SOLANA_MASTER_SEED || '',
     tronXpub: process.env.TRON_XPUB || '',
     baseXpub: process.env.BASE_XPUB || '',
+    cryptogatewayApiKey: process.env.CRYPTOGATEWAY_API_KEY || '',
+    webhookSecret: process.env.WEBHOOK_SECRET || '',
+    viteBackendUrl: process.env.VITE_BACKEND_URL || 'localhost:4000',
 };
 
 cloudinary.config({
@@ -299,6 +312,7 @@ async function readJson(req) {
     if (chunks.length === 0) return {};
     const raw = Buffer.concat(chunks).toString('utf8').trim();
     if (!raw) return {};
+    req.rawBody = raw;
     try {
         return JSON.parse(raw);
     } catch (err) {
@@ -962,6 +976,152 @@ async function confirmSolanaPayment(userId, payload) {
     throw new Error('Unsupported payment kind');
 }
 
+async function verifyTronPayment(address, txHash, requiredAmount) {
+    try {
+        const url = `https://api.trongrid.io/v1/accounts/${address}/transactions/trc20?contract_address=${TRON_USDT_CONTRACT}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (!data.success || !data.data) return { paid: false };
+
+        for (const tx of data.data) {
+            if (tx.transaction_id === txHash) {
+                const amount = Number(tx.value) / Math.pow(10, tx.token_info.decimals);
+                if (amount >= requiredAmount * 0.95) {
+                    return { paid: true, amount };
+                }
+            }
+        }
+        return { paid: false };
+    } catch (err) {
+        console.error('[Tron Verify] Error:', err);
+        return { paid: false, error: err.message };
+    }
+}
+
+async function verifyBasePayment(address, txHash, requiredAmount) {
+    try {
+        const provider = new ethers.JsonRpcProvider(BASE_RPC);
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if (!receipt || receipt.status !== 1) return { paid: false };
+
+        const usdcInterface = new ethers.Interface([
+            "event Transfer(address indexed from, address indexed to, uint256 value)"
+        ]);
+
+        let receivedAmount = 0;
+        for (const log of receipt.logs) {
+            if (log.address.toLowerCase() === BASE_USDC_CONTRACT.toLowerCase()) {
+                try {
+                    const parsed = usdcInterface.parseLog(log);
+                    if (parsed.name === 'Transfer' && parsed.args.to.toLowerCase() === address.toLowerCase()) {
+                        receivedAmount += Number(ethers.formatUnits(parsed.args.value, 6));
+                    }
+                } catch (e) { }
+            }
+        }
+
+        if (receivedAmount >= requiredAmount * 0.95) {
+            return { paid: true, amount: receivedAmount };
+        }
+        return { paid: false };
+    } catch (err) {
+        console.error('[Base Verify] Error:', err);
+        return { paid: false, error: err.message };
+    }
+}
+
+async function confirmCryptoPayment(userId, payload) {
+    if (!adminSupabase) {
+        throw new Error('Supabase service role is not configured');
+    }
+
+    const { kind, plan, pack, signature, coin, requiredAmount, address } = payload || {};
+    if (!signature || !requiredAmount || !address || !coin) {
+        throw new Error('Missing required fields (signature, requiredAmount, address, coin)');
+    }
+
+    const cryptoAddresses = await getOrCreateCryptoAddresses(userId);
+
+    if (coin === 'SOL') {
+        const activeSolAddress = typeof cryptoAddresses === 'string' ? cryptoAddresses : cryptoAddresses.solana;
+        if (address !== activeSolAddress) throw new Error('Invalid address for SOL');
+    } else if (coin === 'USDT') {
+        if (address !== cryptoAddresses.tron) throw new Error('Invalid address for USDT');
+    } else if (coin === 'USDC') {
+        if (address !== cryptoAddresses.base) throw new Error('Invalid address for USDC');
+    }
+
+    // Prevent Double Spends
+    const { data: duplicate } = await adminSupabase
+        .from('payment_logs')
+        .select('id')
+        .eq('tx_signature', signature)
+        .maybeSingle();
+
+    if (duplicate) {
+        throw new Error('This transaction has already been processed');
+    }
+
+    let verification;
+    if (coin === 'SOL') {
+        // reuse existing logic for Solana
+        const result = await confirmSolanaPayment(userId, { ...payload, solAddress: address, requiredSol: requiredAmount });
+        return result;
+    } else if (coin === 'USDT') {
+        verification = await verifyTronPayment(address, signature, requiredAmount);
+    } else if (coin === 'USDC') {
+        verification = await verifyBasePayment(address, signature, requiredAmount);
+    } else {
+        throw new Error('Unsupported coin');
+    }
+
+    if (!verification.paid) {
+        throw new Error('Payment verification failed. Please check the transaction hash.');
+    }
+
+    const receivedAmount = verification.amount;
+
+    if (kind === 'premium') {
+        const premiumPlan = PREMIUM_PLANS[plan] || PREMIUM_PLANS.monthly;
+        const expiresAt = new Date(Date.now() + premiumPlan.days * 86400_000).toISOString();
+        await adminSupabase.from('users').update({
+            is_premium: true,
+            premium_plan: plan,
+            premium_expires_at: expiresAt,
+            premium_tx: signature,
+            coin_balance: 99999,
+        }).eq('uuid', userId);
+
+        await adminSupabase.from('payment_logs').insert({
+            user_uuid: userId,
+            plan,
+            amount_sol: receivedAmount,
+            tx_signature: signature,
+            sol_address: address,
+        });
+        return { ok: true, kind, signature, amount: receivedAmount, premium_expires_at: expiresAt };
+    }
+
+    if (kind === 'coins') {
+        const totalCoins = Number(pack?.coins || 0) + Number(pack?.bonus || 0);
+        const { data: currentUser } = await adminSupabase.from('users').select('coin_balance').eq('uuid', userId).single();
+        const newBalance = Number(currentUser?.coin_balance || 0) + totalCoins;
+
+        await adminSupabase.from('users').update({ coin_balance: newBalance }).eq('uuid', userId);
+        await adminSupabase.from('payment_logs').insert({
+            user_uuid: userId,
+            plan: `coins_${pack.id}`,
+            amount_sol: receivedAmount,
+            tx_signature: signature,
+            sol_address: address,
+        });
+        return { ok: true, kind, signature, amount: receivedAmount, coin_balance: newBalance };
+    }
+
+    throw new Error('Unsupported payment kind');
+}
+
 const server = createServer(async (req, res) => {
     setCors(req, res);
 
@@ -1055,6 +1215,14 @@ const server = createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'POST' && requestUrl.pathname === '/api/payments/crypto/confirm') {
+            const user = await getAuthenticatedUser(req);
+            const payload = await readJson(req);
+            const result = await confirmCryptoPayment(user.id, payload);
+            sendJson(res, 200, result);
+            return;
+        }
+
         if (req.method === 'POST' && requestUrl.pathname === '/api/payments/solana/confirm') {
             const user = await getAuthenticatedUser(req);
             const payload = await readJson(req);
@@ -1071,18 +1239,18 @@ const server = createServer(async (req, res) => {
             const orderIdData = pack ? pack.id : plan;
             const order_id = `${user.id}||${kind}||${orderIdData}`;
 
-            const cgResponse = await fetch('http://localhost:3000/api/v1/payment/create', {
+            const cgResponse = await fetch('https://cryptogateway1-dng6.vercel.app/api/v1/payment/create', {
                 method: 'POST',
                 headers: {
-                    'x-api-key': 'cgk_live_0o0jdzsaq1s730hhzuy5zywiu5c0doqy',
+                    'x-api-key': env.cryptogatewayApiKey,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     coin: "USDC",
                     amount: amount,
                     order_id: order_id,
-                    redirect_url: `http://localhost:5173/`,
-                    webhook_url: "http://localhost:4000/api/webhooks/crypto"
+                    redirect_url: `https://dreamaistudio.com/`, // Production frontend URL or root
+                    webhook_url: `https://${env.viteBackendUrl}/api/webhooks/crypto`
                 })
             });
 
@@ -1096,31 +1264,75 @@ const server = createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && requestUrl.pathname === '/api/webhooks/crypto') {
+        if (req.method === 'POST' && (requestUrl.pathname === '/api/webhooks/crypto' || requestUrl.pathname === '/')) {
             const payload = await readJson(req);
-            const { status, order_id } = payload || {};
+            
+            const signature = req.headers['x-cryptogate-signature'];
+            const rawBody = req.rawBody;
+
+            if (!signature || !rawBody) {
+                sendJson(res, 401, { error: 'Missing signature or payload' });
+                return;
+            }
+
+            const webhookSecret = env.webhookSecret;
+            const expected = crypto
+                .createHmac('sha256', webhookSecret)
+                .update(rawBody)
+                .digest('hex');
+
+            try {
+                const isValid = crypto.timingSafeEqual(
+                    Buffer.from(signature, 'hex'),
+                    Buffer.from(expected, 'hex')
+                );
+
+                if (!isValid) {
+                    sendJson(res, 401, { error: 'Invalid signature' });
+                    return;
+                }
+            } catch (err) {
+                sendJson(res, 401, { error: 'Invalid signature format' });
+                return;
+            }
+
             console.log('[Webhook] Received CryptoGate Webhook:', payload);
 
-            if (status === 'paid' || status === 'completed' || status === 'confirmed' || status === 'success') {
+            const isInvoicePaid = payload?.event === 'invoice.paid';
+            const status = payload?.status;
+            const order_id = payload?.data?.order_id || payload?.order_id;
+
+            console.log('[Webhook] Raw payload event:', payload?.event, 'status:', payload?.status);
+            console.log('[Webhook] Extracted metadata/order_id:', order_id);
+
+            if (isInvoicePaid || status === 'paid' || status === 'completed' || status === 'confirmed' || status === 'success') {
                 const parts = order_id ? order_id.split('||') : [];
                 if (parts.length >= 3) {
                     const userId = parts[0];
                     const kind = parts[1];
                     const planOrPack = parts[2];
+                    
+                    console.log(`[Webhook] Verified Metadata - User ID: ${userId}, Type: ${kind}, Package: ${planOrPack}`);
 
                     if (adminSupabase) {
                         try {
                             if (kind === 'premium') {
                                 const premiumPlan = PREMIUM_PLANS[planOrPack] || PREMIUM_PLANS.monthly;
                                 const expiresAt = new Date(Date.now() + premiumPlan.days * 86400_000).toISOString();
-                                await adminSupabase.from('users').update({
+                                
+                                console.log(`[Webhook] Setting user to premium (${planOrPack}). Expires: ${expiresAt}`);
+                                
+                                const { error: dbErr } = await adminSupabase.from('users').update({
                                     is_premium: true,
-                                    premium_plan: planOrPack,
-                                    premium_expires_at: expiresAt,
-                                    coin_balance: 99999,
                                 }).eq('uuid', userId);
+                                
+                                if (dbErr) {
+                                    console.error('[Webhook] Database Error while setting premium:', dbErr);
+                                } else {
+                                    console.log('[Webhook] SUCCESS! User is now Premium in the database.');
+                                }
                             } else if (kind === 'coins') {
-                                const { data: currentUser } = await adminSupabase
+                                const { data: currentUser, error: fetchErr } = await adminSupabase
                                     .from('users')
                                     .select('coin_balance')
                                     .eq('uuid', userId)
@@ -1132,18 +1344,33 @@ const server = createServer(async (req, res) => {
                                 else if (planOrPack === 'starter') addedCoins = 100;
 
                                 const newBalance = Number(currentUser?.coin_balance || 0) + addedCoins;
-                                await adminSupabase.from('users').update({ coin_balance: newBalance }).eq('uuid', userId);
+                                console.log(`[Webhook] Adding ${addedCoins} coins to user ${userId}. New Balance: ${newBalance}`);
+                                
+                                const { error: dbErr } = await adminSupabase.from('users').update({ coin_balance: newBalance }).eq('uuid', userId);
+                                
+                                if (dbErr) {
+                                    console.error('[Webhook] Database Error while adding coins:', dbErr);
+                                } else {
+                                    console.log('[Webhook] SUCCESS! Coins added to user in the database.');
+                                }
                             }
                         } catch (err) {
-                            console.error('[Webhook] Update Error:', err);
+                            console.error('[Webhook] Unexpected Error during DB update:', err);
                         }
+                    } else {
+                        console.error('[Webhook] adminSupabase is not initialized!');
                     }
+                } else {
+                    console.log('[Webhook] Warning: order_id could not be parsed or is missing metadata:', order_id);
                 }
+            } else {
+                console.log('[Webhook] Status is not paid/completed, ignoring.');
             }
             sendJson(res, 200, { received: true });
             return;
         }
 
+        console.log(`[404] Unhandled route: ${req.method} ${requestUrl.pathname}`);
         sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
         const statusCode = /missing bearer token|invalid or expired session/i.test(error.message) ? 401 : 500;

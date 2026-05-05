@@ -15,7 +15,7 @@ import {
     PLANS,
     SOLANA_NETWORK,
 } from './SolanaPaymentService';
-import { backendJson, hasBackend } from './backendApi';
+import { backendJson, hasBackend, buildBackendUrl } from './backendApi';
 
 // ── Premium benefits ──────────────────────────────────────────────────────────
 const BENEFITS = [
@@ -303,6 +303,16 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
                     usdLabel={`$${PLANS[selectedPlan]?.usd}`}
                 />
             )}
+            {payMethod === 'cryptogate' && (
+                <CryptoGatePanel
+                    userUuid={userUuid}
+                    plan={selectedPlan}
+                    usdPrice={PLANS[selectedPlan]?.usd}
+                    kind="premium"
+                    sessionInfo={sessionInfo}
+                    onBack={reset}
+                />
+            )}
 
         </div>
     );
@@ -543,6 +553,16 @@ function CoinsTab({ userUuid, sessionInfo, onCoinsAdded, onClose, coinBalance })
                     usdLabel={`$${selectedPack.price.toFixed(2)}`}
                 />
             )}
+            {selectedPack && payMethod === 'cryptogate' && (
+                <CryptoGatePanel
+                    userUuid={userUuid}
+                    pack={selectedPack}
+                    usdPrice={selectedPack.price}
+                    kind="coins"
+                    sessionInfo={sessionInfo}
+                    onBack={reset}
+                />
+            )}
 
 
         </div>
@@ -601,35 +621,51 @@ function PaymentPicker({ label, usdPrice, requiredSol, priceLoading, userUuid, o
         <div className="space-y-3">
             <p className="text-center text-xs text-gray-500 uppercase tracking-wider font-semibold">Choose Payment Method</p>
 
-            {/* Unified Crypto */}
+            {/* CryptoGate */}
             {userUuid ? (
                 <button
-                    onClick={() => onSelect('crypto')}
-                    className="w-full flex items-center gap-4 p-4 rounded-2xl border border-purple-700/40 bg-gradient-to-r from-purple-950/50 to-indigo-950/50 hover:border-purple-400/60 hover:bg-purple-900/20 transition-all group shimmer-btn"
+                    onClick={() => onSelect('cryptogate')}
+                    className="w-full flex items-center gap-4 p-4 rounded-2xl border border-blue-700/40 bg-gradient-to-r from-blue-950/50 to-cyan-950/50 hover:border-blue-400/60 hover:bg-blue-900/20 transition-all group shimmer-btn"
                 >
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(147,51,234,0.4)]">
-                        <Coins size={22} className="text-white" />
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-600 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(37,99,235,0.4)]">
+                        <Shield size={22} className="text-white" />
                     </div>
                     <div className="flex-1 text-left">
                         <div className="flex items-center gap-2">
-                            <p className="text-white font-bold text-sm">Crypto Payment</p>
-                            <span className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full uppercase border border-purple-500/30">Secure</span>
+                            <p className="text-white font-bold text-sm">CryptoGate Payment</p>
+                            <span className="text-[10px] font-black bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full uppercase border border-blue-500/30">New</span>
                         </div>
                         <p className="text-gray-500 text-xs mt-0.5">
-                            Pay with SOL, USDT (TRC-20), or USDC (Base)
+                            Pay securely via CryptoGate
                         </p>
                     </div>
-                    <ChevronRight size={15} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
+                    <ChevronRight size={15} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
                 </button>
             ) : (
                 <div className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-800 bg-gray-900/30 opacity-50 cursor-not-allowed">
-                    <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center"><Coins size={20} className="text-gray-600" /></div>
+                    <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center"><Shield size={20} className="text-gray-600" /></div>
                     <div>
-                        <p className="text-gray-500 font-bold text-sm">Crypto Payment</p>
+                        <p className="text-gray-500 font-bold text-sm">CryptoGate Payment</p>
                         <p className="text-gray-600 text-xs">Sign in to use crypto payment</p>
                     </div>
                 </div>
             )}
+
+            {/* Unified Crypto (Disabled) */}
+            <div className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-800 bg-gray-900/30 opacity-50 cursor-not-allowed">
+                <div className="w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center">
+                    <Coins size={20} className="text-gray-600" />
+                </div>
+                <div className="flex-1 text-left">
+                    <div className="flex items-center gap-2">
+                        <p className="text-gray-500 font-bold text-sm">Crypto Payment</p>
+                        <span className="text-[10px] font-black bg-gray-700/50 text-gray-400 px-2 py-0.5 rounded-full uppercase border border-gray-700">Inactive</span>
+                    </div>
+                    <p className="text-gray-600 text-xs mt-0.5">
+                        Temporarily disabled for testing.
+                    </p>
+                </div>
+            </div>
         </div>
     );
 }
@@ -669,7 +705,7 @@ function StripePanel({ price, onBack }) {
 }
 
 // ─── CryptoGate Gateway Panel ──────────────────────────────────────────────────
-function CryptoGatePanel({ plan, pack, usdPrice, kind, sessionInfo, onBack }) {
+function CryptoGatePanel({ userUuid, plan, pack, usdPrice, kind, sessionInfo, onBack }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
@@ -677,17 +713,29 @@ function CryptoGatePanel({ plan, pack, usdPrice, kind, sessionInfo, onBack }) {
         setLoading(true);
         setError(null);
         try {
-            const data = await backendJson('/api/payments/cryptogate/create', {
-                method: 'POST',
-                sessionInfo,
-                body: { amount: usdPrice, kind, plan, pack }
-            });
-
-            if (data?.checkout_url) {
-                window.location.href = data.checkout_url;
-            } else {
-                throw new Error('Failed to retrieve checkout URL from gateway.');
+            if (!window.CryptoGate) {
+                throw new Error('CryptoGate SDK is not loaded. Please refresh the page.');
             }
+
+            const orderIdData = pack ? pack.id : plan;
+            const order_id = `${userUuid}||${kind}||${orderIdData}`;
+
+            const backendUrl = buildBackendUrl('/api/webhooks/crypto');
+            const absoluteWebhookUrl = backendUrl.startsWith('http') 
+                ? backendUrl 
+                : `http://localhost:4000${backendUrl}`;
+
+            const params = {
+                amount: 10, // Hardcoded for testing
+                coin: 'USDC',
+                order_id: order_id,
+                // Changing to google.com temporarily to bypass the Chrome "Private Network Access" localhost block
+                redirect_url: 'https://www.google.com',
+                webhook_url: absoluteWebhookUrl
+            };
+
+            await window.CryptoGate.openModal(params);
+            setLoading(false);
         } catch (err) {
             console.error('[CryptoGate] Checkout error:', err);
             setError(err.message || 'Payment initiation failed.');

@@ -1,7 +1,7 @@
 const trimTrailingSlash = (value = '') => value.replace(/\/+$/, '');
 
 export const BACKEND_URL = (() => {
-    let url = import.meta.env.DEV ? '' : (import.meta.env.VITE_BACKEND_URL || '');
+    let url = import.meta.env.VITE_BACKEND_URL || '';
     url = trimTrailingSlash(url);
     if (url && !url.startsWith('http')) {
         url = `https://${url}`;
