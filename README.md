@@ -1,20 +1,32 @@
-# DreamAI
+# DreamAI - Full Stack Application
 
-Repo layout:
+This repository contains the DreamAI application, with both the frontend and the production backend.
 
-- `my-app/` frontend app
-- `backend/` private backend for AI, payments, and server-only secrets
-- `image-proxy-server/` legacy proxy code kept for reference only
+## Repo Layout
+- `my-app/` - React frontend application.
+- `backend/` - Local backend source code.
+- `server.mjs` - Production backend entry point (at root for Railway compatibility).
 
-Safe upload rules:
+## Backend Features
+- AI provider integration (llama-3.3, gemini-2.5) via Groq and Google.
+- CryptoGate payment gateway integration with automatic webhook fulfillment.
+- Cloudinary search and asset management.
+- ElevenLabs high-fidelity text-to-speech.
+- Solana/Tron/Base address derivation and payment confirmation.
 
-- Never commit `backend/.env`
-- Never commit `my-app/.env`
-- Keep real secrets only in Railway/Netlify environment variables
-- Use `.env.example` files as the template for setup
+## Local Development
 
-Recommended test deployment:
+### 1. Backend Setup
+1. Ensure you have a `.env` file at the root or in the `backend/` folder.
+2. Install dependencies: `npm install`
+3. Start the server: `npm run dev`
 
-- Frontend: Netlify with root directory `my-app`
-- Backend: Railway with root directory `backend`
-- Auth/DB: Supabase
+### 2. Frontend Setup
+1. Navigate to `my-app/`.
+2. Install dependencies: `npm install`
+3. Start the app: `npm run dev`
+
+## Deployment Checklist
+- **Backend (Railway)**: Deploy from the root of this repository.
+- **Frontend (Netlify/Vercel)**: Set the root directory to `my-app`.
+- **Secrets**: Never commit `.env` files. Use platform environment variables.
