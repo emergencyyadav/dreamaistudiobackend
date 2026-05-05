@@ -14,3 +14,6 @@ my-app/temp_proxy.js
 my-app/test_api*.mjs
 my-app/build_err.txt
 test_groq.mjs
+test_local_webhook.mjs
+user_tokens.json
+test.mjs
