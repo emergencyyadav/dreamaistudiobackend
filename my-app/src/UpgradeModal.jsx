@@ -720,17 +720,13 @@ function CryptoGatePanel({ userUuid, plan, pack, usdPrice, kind, sessionInfo, on
             const orderIdData = pack ? pack.id : plan;
             const order_id = `${userUuid}||${kind}||${orderIdData}`;
 
-            const backendUrl = buildBackendUrl('/api/webhooks/crypto');
-            const absoluteWebhookUrl = backendUrl.startsWith('http') 
-                ? backendUrl 
-                : `http://localhost:4000${backendUrl}`;
-
+            const absoluteWebhookUrl = buildBackendUrl('/api/webhooks/crypto');
+            
             const params = {
-                amount: 10, // Hardcoded for testing
+                amount: usdPrice,
                 coin: 'USDC',
                 order_id: order_id,
-                // Changing to google.com temporarily to bypass the Chrome "Private Network Access" localhost block
-                redirect_url: 'https://www.google.com',
+                redirect_url: window.location.origin,
                 webhook_url: absoluteWebhookUrl
             };
 
