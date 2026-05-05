@@ -109,8 +109,9 @@ let cachedSolPriceAt = 0;
 let cachedSeed = null;
 
 const PREMIUM_PLANS = {
-    monthly: { usd: 4.99, days: 30 },
-    yearly: { usd: 39.99, days: 365 },
+    monthly: { usd: 8.00, days: 30 },
+    quarterly: { usd: 20.00, days: 90 },
+    yearly: { usd: 60.00, days: 365 },
 };
 
 function setCors(req, res) {
@@ -1296,16 +1297,25 @@ const server = createServer(async (req, res) => {
                 return;
             }
 
-            console.log('[Webhook] Received CryptoGate Webhook:', payload);
-
-            const isInvoicePaid = payload?.event === 'invoice.paid';
-            const status = payload?.status;
+            console.log('[Webhook] Received CryptoGate Webhook:', JSON.stringify(payload, null, 2));
+            
+            const event = payload?.event;
+            const status = payload?.status || payload?.data?.status;
             const order_id = payload?.data?.order_id || payload?.order_id;
+            
+            // Extract amounts for tolerance check
+            const amount_crypto = Number(payload?.data?.amount_crypto || 0);
+            const amount_received = Number(payload?.data?.amount_received || 0);
+            
+            // 1% Tolerance Check
+            const tolerance = 0.01;
+            const isAmountSufficient = amount_received >= (amount_crypto * (1 - tolerance));
+            const isPaidEvent = event === 'invoice.paid' || status === 'paid' || status === 'completed' || status === 'confirmed' || status === 'success';
 
-            console.log('[Webhook] Raw payload event:', payload?.event, 'status:', payload?.status);
-            console.log('[Webhook] Extracted metadata/order_id:', order_id);
+            console.log(`[Webhook] Event: ${event}, Status: ${status}, Order: ${order_id}`);
+            console.log(`[Webhook] Amount Crypto: ${amount_crypto}, Received: ${amount_received}, Sufficient: ${isAmountSufficient}`);
 
-            if (isInvoicePaid || status === 'paid' || status === 'completed' || status === 'confirmed' || status === 'success') {
+            if (isPaidEvent && isAmountSufficient) {
                 const parts = order_id ? order_id.split('||') : [];
                 if (parts.length >= 3) {
                     const userId = parts[0];
