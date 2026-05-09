@@ -17,6 +17,7 @@ import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { ethers } from 'ethers';
+import { fulfillOrder } from './db.mjs';
 
 
 const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
@@ -1267,11 +1268,19 @@ const server = createServer(async (req, res) => {
 
         if (req.method === 'POST' && (requestUrl.pathname === '/api/webhooks/crypto' || requestUrl.pathname === '/api/webhook/crypto' || requestUrl.pathname === '/')) {
             const payload = await readJson(req);
+            console.log(`[Webhook] Incoming request to ${requestUrl.pathname}`);
+            console.log(`[Webhook] Headers:`, JSON.stringify(req.headers, null, 2));
+            console.log('[Webhook] Received CryptoGate Webhook Payload:', JSON.stringify(payload, null, 2));
+            
+            const event = payload?.event;
+            const status = payload?.status || payload?.data?.status;
+            const order_id = payload?.data?.order_id || payload?.order_id;
             
             const signature = req.headers['x-cryptogate-signature'];
             const rawBody = req.rawBody;
 
             if (!signature || !rawBody) {
+                console.error('[Webhook] Error: Missing signature or payload');
                 sendJson(res, 401, { error: 'Missing signature or payload' });
                 return;
             }
@@ -1289,19 +1298,25 @@ const server = createServer(async (req, res) => {
                 );
 
                 if (!isValid) {
+                    console.error('[Webhook] Error: Invalid signature. Expected:', expected, 'Received:', signature);
                     sendJson(res, 401, { error: 'Invalid signature' });
                     return;
                 }
+                console.log('[Webhook] Signature verified successfully.');
             } catch (err) {
+                console.error('[Webhook] Error: Invalid signature format:', err.message);
                 sendJson(res, 401, { error: 'Invalid signature format' });
                 return;
             }
-
-            console.log('[Webhook] Received CryptoGate Webhook:', JSON.stringify(payload, null, 2));
             
-            const event = payload?.event;
-            const status = payload?.status || payload?.data?.status;
-            const order_id = payload?.data?.order_id || payload?.order_id;
+            // Extract metadata from order_id (format: user_id||kind||plan_or_pack)
+            const parts = order_id ? String(order_id).split('||') : [];
+            const userId = parts[0];
+            const kind = parts[1];
+            const planOrPack = parts[2];
+
+            console.log(`[Webhook] Verification - Event: ${event}, Status: ${status}, Order: ${order_id}`);
+            console.log(`[Webhook] Extracted Metadata - User: ${userId}, Kind: ${kind}, Pack: ${planOrPack}`);
             
             // Extract amounts for tolerance check
             const amount_crypto = Number(payload?.data?.amount_crypto || 0);
@@ -1312,69 +1327,21 @@ const server = createServer(async (req, res) => {
             const isAmountSufficient = amount_received >= (amount_crypto * (1 - tolerance));
             const isPaidEvent = event === 'invoice.paid' || status === 'paid' || status === 'completed' || status === 'confirmed' || status === 'success';
 
-            console.log(`[Webhook] Event: ${event}, Status: ${status}, Order: ${order_id}`);
-            console.log(`[Webhook] Amount Crypto: ${amount_crypto}, Received: ${amount_received}, Sufficient: ${isAmountSufficient}`);
+            console.log(`[Webhook] Details - Paid: ${isPaidEvent}, Amount Suff.: ${isAmountSufficient} (${amount_received}/${amount_crypto})`);
 
             if (isPaidEvent && isAmountSufficient) {
-                const parts = order_id ? order_id.split('||') : [];
-                if (parts.length >= 3) {
-                    const userId = parts[0];
-                    const kind = parts[1];
-                    const planOrPack = parts[2];
-                    
-                    console.log(`[Webhook] Verified Metadata - User ID: ${userId}, Type: ${kind}, Package: ${planOrPack}`);
-
-                    if (adminSupabase) {
-                        try {
-                            if (kind === 'premium') {
-                                const premiumPlan = PREMIUM_PLANS[planOrPack] || PREMIUM_PLANS.monthly;
-                                const expiresAt = new Date(Date.now() + premiumPlan.days * 86400_000).toISOString();
-                                
-                                console.log(`[Webhook] Setting user to premium (${planOrPack}). Expires: ${expiresAt}`);
-                                
-                                const { error: dbErr } = await adminSupabase.from('users').update({
-                                    is_premium: true,
-                                }).eq('uuid', userId);
-                                
-                                if (dbErr) {
-                                    console.error('[Webhook] Database Error while setting premium:', dbErr);
-                                } else {
-                                    console.log('[Webhook] SUCCESS! User is now Premium in the database.');
-                                }
-                            } else if (kind === 'coins') {
-                                const { data: currentUser, error: fetchErr } = await adminSupabase
-                                    .from('users')
-                                    .select('coin_balance')
-                                    .eq('uuid', userId)
-                                    .single();
-
-                                let addedCoins = 100;
-                                if (planOrPack === 'popular') addedCoins = 700;
-                                else if (planOrPack === 'power') addedCoins = 3000;
-                                else if (planOrPack === 'starter') addedCoins = 100;
-
-                                const newBalance = Number(currentUser?.coin_balance || 0) + addedCoins;
-                                console.log(`[Webhook] Adding ${addedCoins} coins to user ${userId}. New Balance: ${newBalance}`);
-                                
-                                const { error: dbErr } = await adminSupabase.from('users').update({ coin_balance: newBalance }).eq('uuid', userId);
-                                
-                                if (dbErr) {
-                                    console.error('[Webhook] Database Error while adding coins:', dbErr);
-                                } else {
-                                    console.log('[Webhook] SUCCESS! Coins added to user in the database.');
-                                }
-                            }
-                        } catch (err) {
-                            console.error('[Webhook] Unexpected Error during DB update:', err);
-                        }
+                if (userId && kind && planOrPack) {
+                    const result = await fulfillOrder(userId, kind, planOrPack);
+                    if (result.success) {
+                        console.log(`[Webhook] SUCCESS: Order fulfilled for ${userId}`);
                     } else {
-                        console.error('[Webhook] adminSupabase is not initialized!');
+                        console.error(`[Webhook] FAILED: Fulfillment error: ${result.error}`);
                     }
                 } else {
-                    console.log('[Webhook] Warning: order_id could not be parsed or is missing metadata:', order_id);
+                    console.error('[Webhook] ERROR: Invalid order_id format. Expected user_id||kind||plan');
                 }
             } else {
-                console.log('[Webhook] Status is not paid/completed, ignoring.');
+                console.log('[Webhook] INFO: Condition not met (not paid or insufficient), ignoring.');
             }
             sendJson(res, 200, { received: true });
             return;
