@@ -1248,7 +1248,7 @@ const server = createServer(async (req, res) => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    coin: "USDC",
+                    coin: 'LTC',
                     amount: amount,
                     order_id: order_id,
                     redirect_url: `https://dreamaistudio.com/`, // Production frontend URL or root
