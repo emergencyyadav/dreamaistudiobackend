@@ -9,9 +9,7 @@
   "scripts": {
     "build": "node --check server.mjs",
     "dev": "node server.mjs",
-    "start": "node server.mjs",
-    "monorepo:build": "npm --prefix backend ci && npm --prefix backend run build",
-    "monorepo:start": "npm --prefix backend start"
+    "start": "node server.mjs"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

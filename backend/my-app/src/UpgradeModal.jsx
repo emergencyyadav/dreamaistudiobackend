@@ -721,12 +721,10 @@ function CryptoGatePanel({ userUuid, plan, pack, usdPrice, kind, sessionInfo, on
             const order_id = `${userUuid}||${kind}||${orderIdData}`;
 
             const absoluteWebhookUrl = buildBackendUrl('/api/webhooks/crypto');
-            const apiKey = import.meta.env.VITE_CRYPTOGATEWAY_API_KEY;
-
+            
             const params = {
-                apiKey: apiKey,
                 amount: usdPrice,
-                coin: 'LTC',
+                coin: 'USDC',
                 order_id: order_id,
                 redirect_url: window.location.origin,
                 webhook_url: absoluteWebhookUrl

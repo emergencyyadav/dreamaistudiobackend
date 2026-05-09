@@ -5,11 +5,6 @@ import "./index.css";
 import Front from "./front.jsx";
 import { I18nProvider } from "./i18n.jsx";
 
-// Initialize CryptoGate SDK
-if (window.CryptoGate) {
-  window.CryptoGate.init(import.meta.env.VITE_CRYPTOGATEWAY_API_KEY);
-}
-
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);

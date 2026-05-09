@@ -1,47 +1,32 @@
-# Backend
+# DreamAI - Full Stack Application
 
-This backend is the safe deployment boundary for the app.
+This repository contains the DreamAI application, with both the frontend and the production backend.
 
-What belongs here:
-- AI provider keys and chat generation
-- Cloudinary search
-- ElevenLabs text-to-speech
-- Solana address derivation and payment confirmation
-- Supabase service-role writes
+## Repo Layout
+- `my-app/` - React frontend application.
+- `backend/` - Local backend source code.
+- `server.mjs` - Production backend entry point (at root for Railway compatibility).
 
-What should stay in the frontend:
-- Supabase anon auth/session usage
-- UI state
-- Rendering and optimistic UX
+## Backend Features
+- AI provider integration (llama-3.3, gemini-2.5) via Groq and Google.
+- CryptoGate payment gateway integration with automatic webhook fulfillment.
+- Cloudinary search and asset management.
+- ElevenLabs high-fidelity text-to-speech.
+- Solana/Tron/Base address derivation and payment confirmation.
 
-## Run locally
+## Local Development
 
-1. Copy `backend/.env.example` to `backend/.env`
-2. Fill in the server-only secrets
-3. Start the server:
+### 1. Backend Setup
+1. Ensure you have a `.env` file at the root or in the `backend/` folder.
+2. Install dependencies: `npm install`
+3. Start the server: `npm run dev`
 
-```bash
-cd backend
-npm run dev
-```
+### 2. Frontend Setup
+1. Navigate to `my-app/`.
+2. Install dependencies: `npm install`
+3. Start the app: `npm run dev`
 
-4. In `my-app/.env`, set:
-
-```bash
-VITE_BACKEND_URL=http://localhost:4000
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
-```
-
-## Deployment checklist
-
-- If your host asks for a root directory, use `backend`
-- Build command: `npm run build`
-- Start command: `npm start`
-- Node version: `20.18.0` or newer
-- Never put provider secrets in `VITE_` variables
-- Rotate any keys that were previously exposed in frontend code or generated files
-- Set `ALLOWED_ORIGINS` to your production frontend origin
-- Use a Supabase service role only on the backend
-- Keep Solana seed material only on the backend
-- Add upstream/provider rate limits at the platform edge if available
+## Deployment Checklist
+- **Backend (Railway)**: Deploy from the root of this repository.
+- **Frontend (Netlify/Vercel)**: Set the root directory to `my-app`.
+- **Secrets**: Never commit `.env` files. Use platform environment variables.

@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+/* ── Smooth scrolling globally ── */
+html {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ── Hide scrollbars but keep scrollability ── */
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+/* ── Prevent touch callout on mobile (links, images) ── */
+* {
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+}
+
+/* ── Safe area padding for phones with notch / home bar ── */
+.pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 12px);
+}
+
+/* ── Shimmer animation ── */
+@keyframes shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.animate-shimmer {
+    animation: shimmer 1.5s infinite;
+}
+
+/* ── Float animations ── */
+@keyframes floatSlow {
+
+    0%,
+    100% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-20px);
+    }
+}
+
+@keyframes floatSlowReverse {
+
+    0%,
+    100% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(20px);
+    }
+}
+
+.animate-floatSlow {
+    animation: floatSlow 8s ease-in-out infinite;
+}
+
+.animate-floatSlowReverse {
+    animation: floatSlowReverse 10s ease-in-out infinite;
+}
+
+/* ── Chat message fade in ── */
+@keyframes fadeSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Custom range slider ── */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(147, 51, 234, 0.6), 0 2px 6px rgba(0, 0, 0, 0.5);
+    border: 2.5px solid rgba(255, 255, 255, 0.9);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    margin-top: -7px;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+    transform: scale(1.2);
+    box-shadow: 0 0 18px rgba(147, 51, 234, 0.8), 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: transparent;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    border: 2.5px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 10px rgba(147, 51, 234, 0.6);
+    transition: transform 0.15s ease;
+}
+
+input[type="range"]::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: #374151;
+}

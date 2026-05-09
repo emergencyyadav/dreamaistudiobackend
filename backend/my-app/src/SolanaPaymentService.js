@@ -1,0 +1,232 @@
+/**
+ * SolanaPaymentService.js
+ *
+ * Safe frontend payment helpers:
+ * - public price lookup and chain polling can stay client-side
+ * - address derivation and privileged payment confirmation must happen on the backend
+ */
+
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { backendJson, hasBackend } from './backendApi';
+
+const SOLANA_RPC = import.meta.env.VITE_SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
+const SOLANA_NETWORK = import.meta.env.VITE_SOLANA_NETWORK || 'mainnet-beta';
+
+export const PLANS = {
+    monthly: { usd: 8.00, label: 'Monthly', period: '/ month' },
+    quarterly: { usd: 20.00, label: 'Quarterly', period: '/ 3 months', savings: '17%' },
+    yearly: { usd: 60.00, label: 'Yearly', period: '/ year', savings: '38%' },
+};
+
+let solPriceCache = null;
+let solPriceFetchedAt = 0;
+const PRICE_CACHE_MS = 5 * 60 * 1000;
+
+export async function getLiveSolPrice() {
+    if (hasBackend) {
+        try {
+            const data = await backendJson('/api/payments/solana/price?plan=monthly');
+            if (data?.usd_price) return data.usd_price;
+        } catch (err) {
+            console.warn('[Solana] Backend price lookup failed, using public fallback:', err.message);
+        }
+    }
+
+    const now = Date.now();
+    if (solPriceCache && now - solPriceFetchedAt < PRICE_CACHE_MS) {
+        return solPriceCache;
+    }
+
+    try {
+        const res = await fetch(
+            'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd',
+            { signal: AbortSignal.timeout(5000) }
+        );
+        const data = await res.json();
+        const price = data?.solana?.usd;
+        if (price && price > 0) {
+            solPriceCache = price;
+            solPriceFetchedAt = now;
+            return price;
+        }
+    } catch (err) {
+        console.warn('[Solana] CoinGecko fetch failed, using fallback price:', err.message);
+    }
+
+    return solPriceCache || 130;
+}
+
+export function calcSolAmount(plan, solPriceUsd) {
+    const usd = PLANS[plan]?.usd ?? 4.99;
+    return Math.ceil((usd / solPriceUsd) * 1e6) / 1e6;
+}
+
+export async function getOrCreateUserCryptoAddresses(uuid, sessionInfo = null) {
+    if (!uuid) return null;
+    if (!hasBackend) {
+        console.warn('[Crypto] Safe address derivation requires VITE_BACKEND_URL. Frontend derivation is disabled.');
+        return null;
+    }
+
+    try {
+        const data = await backendJson('/api/payments/crypto/addresses', {
+            method: 'POST',
+            sessionInfo,
+            body: {},
+        });
+        return data || null;
+    } catch (err) {
+        console.error('[Crypto] getOrCreateUserCryptoAddresses error:', err);
+        return null;
+    }
+}
+
+export const getUserCryptoAddresses = getOrCreateUserCryptoAddresses;
+
+const connection = new Connection(SOLANA_RPC, 'confirmed');
+
+export async function checkSolanaPayment(userAddress, requiredSolAmount, since = null) {
+    try {
+        const pubkey = new PublicKey(userAddress);
+        const signatures = await connection.getSignaturesForAddress(pubkey, { limit: 25 });
+
+        for (const sigInfo of signatures) {
+            if (since && sigInfo.blockTime && sigInfo.blockTime < since / 1000) continue;
+            if (sigInfo.err) continue;
+
+            const tx = await connection.getTransaction(sigInfo.signature, {
+                commitment: 'confirmed',
+                maxSupportedTransactionVersion: 0,
+            });
+            if (!tx?.meta) continue;
+
+            const accountKeys = tx.transaction.message.staticAccountKeys
+                ?? tx.transaction.message.accountKeys;
+
+            const idx = accountKeys.findIndex(k => k.toString() === userAddress);
+            if (idx === -1) continue;
+
+            const received = (tx.meta.postBalances[idx] - tx.meta.preBalances[idx]) / LAMPORTS_PER_SOL;
+            if (received <= 0) continue;
+
+            if (received >= requiredSolAmount * 0.98) {
+                return {
+                    paid: true,
+                    amount: received,
+                    signature: sigInfo.signature,
+                    timestamp: sigInfo.blockTime ? sigInfo.blockTime * 1000 : Date.now(),
+                };
+            }
+        }
+
+        return { paid: false, amount: 0, signature: null, timestamp: null };
+    } catch (err) {
+        console.error('[Solana] checkSolanaPayment error:', err);
+        return { paid: false, amount: 0, signature: null, timestamp: null, error: err.message };
+    }
+}
+
+export async function checkTronPayment(userAddress, requiredUsdtAmount, since = null) {
+    try {
+        const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+        const url = `https://api.trongrid.io/v1/accounts/${userAddress}/transactions/trc20?contract_address=${TRON_USDT_CONTRACT}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success || !data.data) return { paid: false };
+
+        for (const tx of data.data) {
+            const blockTime = Number(tx.block_timestamp); // ms
+            if (since && blockTime < since) continue;
+
+            const amount = Number(tx.value) / Math.pow(10, tx.token_info.decimals);
+            if (amount >= requiredUsdtAmount * 0.95) {
+                return {
+                    paid: true,
+                    amount,
+                    signature: tx.transaction_id,
+                    timestamp: blockTime
+                };
+            }
+        }
+        return { paid: false };
+    } catch (err) {
+        console.error('[Tron] checkTronPayment error:', err);
+        return { paid: false, error: err.message };
+    }
+}
+
+export async function checkBasePayment(userAddress, requiredUsdcAmount, since = null) {
+    try {
+        const BASE_USDC_CONTRACT = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+        // Public BaseScan endpoint (may rate limit without key, but better than nothing)
+        const url = `https://api.basescan.org/api?module=account&action=tokentx&address=${userAddress}&contractaddress=${BASE_USDC_CONTRACT}&page=1&offset=10&sort=desc`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status !== '1' || !data.result) return { paid: false };
+
+        for (const tx of data.result) {
+            const blockTime = Number(tx.timeStamp) * 1000; // ms
+            if (since && blockTime < since) continue;
+
+            const amount = Number(tx.value) / Math.pow(10, tx.tokenDecimal);
+            if (amount >= requiredUsdcAmount * 0.95) {
+                return {
+                    paid: true,
+                    amount,
+                    signature: tx.hash,
+                    timestamp: blockTime
+                };
+            }
+        }
+        return { paid: false };
+    } catch (err) {
+        console.error('[Base] checkBasePayment error:', err);
+        return { paid: false, error: err.message };
+    }
+}
+
+export function pollForPayment(userAddress, requiredAmount, {
+    onPaid,
+    onTick,
+    onError,
+    coin = 'SOL',
+    intervalMs = 15000,
+    maxAttempts = 40,
+} = {}) {
+    let attempt = 0;
+    let cancelled = false;
+    const since = Date.now();
+
+    const check = async () => {
+        if (cancelled) return;
+        attempt += 1;
+        if (onTick) onTick(attempt, maxAttempts);
+
+        try {
+            let result = { paid: false };
+            if (coin === 'SOL') {
+                result = await checkSolanaPayment(userAddress, requiredAmount, since);
+            } else if (coin === 'USDT') {
+                result = await checkTronPayment(userAddress, requiredAmount, since);
+            } else if (coin === 'USDC') {
+                result = await checkBasePayment(userAddress, requiredAmount, since);
+            }
+
+            if (result.paid) {
+                if (onPaid) onPaid(result);
+                return;
+            }
+        } catch (err) {
+            if (onError) onError(err);
+        }
+
+        if (!cancelled && attempt < maxAttempts) setTimeout(check, intervalMs);
+    };
+
+    setTimeout(check, 3000);
+    return () => { cancelled = true; };
+}
+
+export { SOLANA_NETWORK, SOLANA_RPC };
