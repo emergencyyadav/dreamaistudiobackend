@@ -48,7 +48,7 @@ export default function GuardModal({ isOpen, onClose, reason }) {
                             <div className="flex gap-3">
                                 <Ban size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
                                 <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
-                                    DreamAI enforces a strict zero-tolerance policy against non-compliant content. <span className="text-red-500 font-bold uppercase">Repeated violations will result in a permanent account ban</span> without appeal.
+                                    Luvora enforces a strict zero-tolerance policy against non-compliant content. <span className="text-red-500 font-bold uppercase">Repeated violations will result in a permanent account ban</span> without appeal.
                                 </p>
                             </div>
                         </div>

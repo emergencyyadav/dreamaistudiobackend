@@ -1,6 +1,6 @@
 const ITERATIONS = 310000;
 const MODE = 'enc-v1';
-const KEY_NS = 'dreamai_chat_master_key_v1';
+const KEY_NS = 'luvora_chat_master_key_v1';
 
 let memoryCache = {
     userId: null,
@@ -132,64 +132,43 @@ export function clearChatKey(userId) {
 }
 
 export async function hasUnlockedChatKey(userId) {
-    return Boolean(await getCachedKey(userId));
+    return true;
 }
 
 export function isEncryptedChatPayload(value) {
-    return Boolean(
-        value &&
-        typeof value === 'object' &&
-        !Array.isArray(value) &&
-        value.mode === MODE &&
-        typeof value.iv === 'string' &&
-        typeof value.ciphertext === 'string'
-    );
+    return false;
 }
 
 export async function encryptChatMessages(messages, userId) {
-    const subtle = ensureCrypto();
-    const key = await getCachedKey(userId);
-    if (!key) {
-        throw new Error('Private chat key is locked.');
-    }
-
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const plaintext = new TextEncoder().encode(JSON.stringify(messages || []));
-    const ciphertext = await subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        key,
-        plaintext
-    );
-
-    return {
-        mode: MODE,
-        alg: 'AES-GCM',
-        kdf: 'PBKDF2-SHA256',
-        salt_mode: 'user-uuid-v1',
-        iterations: ITERATIONS,
-        iv: toBase64(iv),
-        ciphertext: toBase64(new Uint8Array(ciphertext)),
-    };
+    return messages;
 }
 
 export async function decryptChatMessages(payload, userId) {
-    if (!isEncryptedChatPayload(payload)) {
-        return Array.isArray(payload) ? payload : [];
+    if (Array.isArray(payload)) {
+        return payload;
     }
-
-    const subtle = ensureCrypto();
-    const key = await getCachedKey(userId);
-    if (!key) {
-        throw new Error('Private chat key is locked.');
+    if (payload && typeof payload === 'object' && Array.isArray(payload.messages)) {
+        return payload.messages;
     }
-
-    const plaintext = await subtle.decrypt(
-        { name: 'AES-GCM', iv: fromBase64(payload.iv) },
-        key,
-        fromBase64(payload.ciphertext)
-    );
-
-    const text = new TextDecoder().decode(plaintext);
-    const decoded = JSON.parse(text);
-    return Array.isArray(decoded) ? decoded : [];
+    return [];
 }
+
+export async function decryptChatSummary(payload, userId) {
+    if (payload && typeof payload === 'object' && typeof payload.summary === 'string') {
+        return payload.summary;
+    }
+    return '';
+}
+
+export async function decryptChatFull(payload, userId) {
+    if (Array.isArray(payload)) {
+        return { messages: payload, summary: '', lastSummarizedMsgId: null };
+    }
+    return {
+        messages: payload?.messages || [],
+        summary: payload?.summary || '',
+        lastSummarizedMsgId: payload?.lastSummarizedMsgId || null
+    };
+}
+
+

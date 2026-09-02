@@ -105,7 +105,7 @@ export default function AuthModal({ isOpen, onClose, customMessage, bannedError 
                                     </div>
                                     <div>
                                         <span className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1">Email</span>
-                                        <span className="text-sm text-white/70">dreamaistudio02@gmail.com</span>
+                                        <span className="text-sm text-white/70">support@luvora.love</span>
                                     </div>
                                 </div>
                             </div>
@@ -117,13 +117,13 @@ export default function AuthModal({ isOpen, onClose, customMessage, bannedError 
                                 <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/20 to-purple-500/0 shadow-[0_0_18px_rgba(168,85,247,0.16)]">
                                     <img
                                         src="/logo.svg"
-                                        alt="DreamAI logo"
+                                        alt="Luvora logo"
                                         className="h-9 w-9 object-contain"
                                     />
                                 </div>
 
                                 <h2 className="mb-3 text-3xl font-light tracking-tight text-white">
-                                    {customMessage || 'Join DreamAI'}
+                                    {customMessage || 'Join Luvora'}
                                 </h2>
 
                                 <p className="text-sm font-light leading-relaxed text-white/60">

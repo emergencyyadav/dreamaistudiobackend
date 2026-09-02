@@ -127,7 +127,7 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                 sessionInfo,
                 body: {
                     provider: 'groq',
-                    model: 'llama-3.1-8b-instant',
+                    model: 'qwen/qwen3.6-27b',
                     messages: [{ role: 'system', content: prompt }],
                     temperature: 0.9,
                     max_tokens: 300,

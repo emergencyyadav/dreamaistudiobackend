@@ -7,7 +7,7 @@ import {
 import { supabase } from './supabaseClient';
 import { checkContentSafe, FORBIDDEN_WORDS } from './guard';
 import { backendFetch, backendJson, hasBackend } from './backendApi';
-import { clearChatKey, decryptChatMessages, encryptChatMessages, hasUnlockedChatKey, isEncryptedChatPayload, unlockChatKey } from './chatCrypto';
+import { clearChatKey, decryptChatMessages, encryptChatMessages, hasUnlockedChatKey, isEncryptedChatPayload, unlockChatKey, decryptChatFull } from './chatCrypto';
 import MediaFrame from './MediaFrame';
 import { isVideoUrl, resolveCharacterMedia } from './mediaUtils';
 import CharacterImageGenModal from './CharacterImageGenModal';
@@ -15,7 +15,7 @@ import CallView from './CallView';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
-const CHAT_MODEL = 'llama-3.1-8b-instant';
+const CHAT_MODEL = 'qwen/qwen3.6-27b';
 const fmtTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const MSG_LIMIT = 100; // rolling window per chat
 const lsKey = (chatId) => `dreamai_msgs_${chatId}`;
@@ -96,6 +96,9 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
     const [chatSessions, setChatSessions] = useState([]);
     const [activeChatId, setActiveChatId] = useState(null);
     const [messages, setMessages] = useState([]);
+    const [chatSummary, setChatSummary] = useState('');
+    const [lastSummarizedMsgId, setLastSummarizedMsgId] = useState(null);
+    const isSummarizingRef = useRef(false);
     const [chatSettings, setChatSettings] = useState({ POV: false, explicit: false, immersive: false, wallpaper: true, descriptive: false, explicitLevel: 0, responseLength: 1, voice: 'Athena', voiceStyle: 'Normal', language: 'English', userName: '', userGender: '', userRelation: '', userScenario: '', userMemories: '', userFrequentWords: '', userBannedWords: '', userTraits: '', autoAudioPlay: false });
     const [input, setInput] = useState('');
     const [isTyping, setIsTyping] = useState(false);
@@ -190,10 +193,10 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
     }, [chatKeyMode]);
 
     // ── Encryption Logic Helpers ──────────────────────────────────────────
-    const saveEncryptedCache = useCallback(async (chatId, msgs) => {
+    const saveEncryptedCache = useCallback(async (chatId, msgs, summary = '', lastId = null) => {
         if (!userId) return;
         try {
-            const encrypted = await encryptChatMessages(msgs, userId);
+            const encrypted = await encryptChatMessages({ messages: msgs, summary, lastSummarizedMsgId: lastId }, userId);
             lsSave(chatId, encrypted);
         } catch (error) {
             console.warn('[Chat] Encrypted cache save skipped:', error.message);
@@ -228,16 +231,22 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
             console.warn('[Chat] No userId, persistence skipped.');
             return null;
         }
-        const encrypted = await encryptChatMessages(msgs, userId);
-        let query = supabase.from('chats').update({ content: encrypted }).eq('id', chatId);
-        if (options.userScoped) {
-            query = query.eq('user_uuid', userId);
-        }
-        const { error } = await query;
-        if (error) throw error;
-        await saveEncryptedCache(chatId, msgs);
-        return encrypted;
-    }, [saveEncryptedCache, userId]);
+        const summary = options.summary !== undefined ? options.summary : chatSummary;
+        const lastId = options.lastSummarizedMsgId !== undefined ? options.lastSummarizedMsgId : lastSummarizedMsgId;
+        const plainPayload = { messages: msgs, summary, lastSummarizedMsgId: lastId };
+        
+        await backendJson('/api/chats/save', {
+            method: 'POST',
+            sessionInfo,
+            body: {
+                chatId,
+                content: plainPayload
+            }
+        });
+        
+        await saveEncryptedCache(chatId, msgs, summary, lastId);
+        return plainPayload;
+    }, [saveEncryptedCache, userId, chatSummary, lastSummarizedMsgId, sessionInfo]);
 
     // ── Thumbs Up/Down Feedback System ────────────────────────────────────
     const persistThumbsFeedback = useCallback(async (chatId, upList, downList) => {
@@ -391,11 +400,7 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
         try {
             const unlocked = await hasUnlockedChatKey(userId);
             setChatKeyReady(unlocked);
-            const { data, error } = await supabase.from('chats').select('*, characters(id, name, images, persona, public_description, age, tags, likes, username, uuid, is_public)').eq('user_uuid', userId).order('created_at', { ascending: false });
-            if (error) {
-                console.error('❌ loadChatSessions error:', error.message);
-                return;
-            }
+            const data = await backendJson('/api/chats', { sessionInfo });
             const now = Date.now();
             const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
             let encryptedFound = false;
@@ -428,11 +433,6 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
                         image: firstMsg.groupData.bgImage || firstMsg.groupData.characters?.[0]?.image || FALLBACK_IMG
                     };
                 }
-                if (!isLocked && lastMsg && typeof lastMsg.id === 'number' && lastMsg.id > 1000000000000 && (now - lastMsg.id > TEN_DAYS_MS)) {
-                    msgs = [];
-                    (async () => { await supabase.from('chats').update({ content: [] }).eq('id', session.id); })();
-                    lsClear(session.id);
-                }
                 return { ...session, content: msgs, isEncrypted, isLocked, lastMessage: lastMsg ? { content: lastMsg.text, created_at: new Date(lastMsg.id).toISOString(), timestamp: lastMsg.timestamp } : (isLocked ? { content: 'Private chat locked', created_at: null, timestamp: '' } : null) };
             }));
             setHasEncryptedChats(encryptedFound);
@@ -440,7 +440,7 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
             if (encryptedFound && !unlocked) openChatKeyModal('unlock', 'Enter your private chat key to decrypt your saved conversations.');
             else if (unlocked) void migratePlaintextChats(data || []);
         } catch (e) { console.error(e); } finally { setLoadingChats(false); }
-    }, [migratePlaintextChats, openChatKeyModal, userId]);
+    }, [migratePlaintextChats, openChatKeyModal, userId, sessionInfo]);
 
     const createNewChat = async (char, safeCharId) => {
         if (!(await ensureChatKeyReady('Set your private chat key before starting a conversation.'))) {
@@ -457,12 +457,27 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
         if (char.isGroup) {
             initialMessages[0].groupData = { title: char.title, scenario: char.scenario, privateDesc: char.privateDesc || '', bgImage: char.bgImage, isPublic: char.isPublic === true, characters: char.characters };
         }
-        const { data, error } = await supabase.from('chats').insert({ user_uuid: userId, character_id: safeCharId, title, content: await encryptChatMessages(initialMessages, userId) }).select().single();
-        if (error) { console.error('❌ createNewChat error:', error.message); return; }
+        let data;
+        try {
+            data = await backendJson('/api/chats', {
+                method: 'POST',
+                sessionInfo,
+                body: {
+                    character_id: safeCharId,
+                    title,
+                    content: { messages: initialMessages, summary: '', lastSummarizedMsgId: null }
+                }
+            });
+        } catch (error) {
+            console.error('❌ createNewChat error:', error.message);
+            return;
+        }
         setActiveChatId(data.id);
         setChatSettings({ POV: false, explicit: false, immersive: false, wallpaper: true, descriptive: false, explicitLevel: 0, responseLength: 1, voice: 'Athena', voiceStyle: 'Normal', language: 'English', userName: '', userGender: '', userRelation: '', userScenario: '', userMemories: '', userFrequentWords: '', userBannedWords: '', userTraits: '', autoAudioPlay: false });
         setMessages(initialMessages);
-        await saveEncryptedCache(data.id, initialMessages);
+        setChatSummary('');
+        setLastSummarizedMsgId(null);
+        await saveEncryptedCache(data.id, initialMessages, '', null);
         setShowBgImage(true);
         // Reset thumbs for new chat
         setThumbsUpList([]); setThumbsDownList([]); setThumbsFeedback({});
@@ -476,24 +491,51 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
             const ready = await ensureChatKeyReady('Enter your private chat key to open this conversation.');
             if (!ready) { pendingSessionOpenRef.current = session; return; }
         }
-        const cached = await loadCachedMessages(session.id);
-        // Load thumbs feedback for this chat
-        void loadThumbsData(session.id);
-        if (cached && cached.length > 0) {
-            setMessages(cached);
-            setShowBgImage(cached.length <= 1);
-            supabase.from('chats').select('content').eq('id', session.id).single().then(async ({ data }) => {
+        
+        // Try local storage cache
+        const cachedPayload = lsLoad(session.id);
+        if (cachedPayload) {
+            const decoded = await decryptChatFull(cachedPayload, userId);
+            setMessages(decoded.messages);
+            setChatSummary(decoded.summary);
+            setLastSummarizedMsgId(decoded.lastSummarizedMsgId);
+            setShowBgImage(decoded.messages.length <= 1);
+            
+            // Load thumbs feedback for this chat
+            void loadThumbsData(session.id);
+            
+            // Background update from backend (Redis cached)
+            backendJson(`/api/chats/${session.id}`, { sessionInfo }).then(async (dbSession) => {
                 try {
-                    const msgs = await decryptStoredMessages(data?.content);
-                    if (msgs && msgs.length > 0) { setMessages(msgs); await saveEncryptedCache(session.id, msgs); }
+                    if (dbSession?.content) {
+                        const decodedDB = await decryptChatFull(dbSession.content, userId);
+                        if (decodedDB.messages && decodedDB.messages.length > 0) {
+                            setMessages(decodedDB.messages);
+                            setChatSummary(decodedDB.summary);
+                            setLastSummarizedMsgId(decodedDB.lastSummarizedMsgId);
+                            await saveEncryptedCache(session.id, decodedDB.messages, decodedDB.summary, decodedDB.lastSummarizedMsgId);
+                        }
+                    }
                 } catch (err) { }
             });
             return;
         }
-        const formatted = await decryptStoredMessages(session.content);
-        setMessages(formatted);
-        await saveEncryptedCache(session.id, formatted);
-        setShowBgImage(formatted.length <= 1);
+
+        // Direct backend load
+        try {
+            const dbSession = await backendJson(`/api/chats/${session.id}`, { sessionInfo });
+            const decodedDB = await decryptChatFull(dbSession.content, userId);
+            setMessages(decodedDB.messages);
+            setChatSummary(decodedDB.summary);
+            setLastSummarizedMsgId(decodedDB.lastSummarizedMsgId);
+            await saveEncryptedCache(session.id, decodedDB.messages, decodedDB.summary, decodedDB.lastSummarizedMsgId);
+            setShowBgImage(decodedDB.messages.length <= 1);
+        } catch (e) {
+            console.error('Failed to load chat:', e.message);
+        }
+        
+        // Load thumbs feedback for this chat
+        void loadThumbsData(session.id);
     };
 
     const openOrCreateChat = async (char) => {
@@ -865,16 +907,19 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
     const handleClearChat = async () => {
         if (!activeChatId) return;
 
+        setChatSummary('');
+        setLastSummarizedMsgId(null);
+
         // Re-add greeting
         if (character) {
             const initialText = character.greeting && character.greeting.trim() !== ''
                 ? character.greeting
                 : `Hey there! ✨ I'm ${character.name}. Let's start fresh! 💬`;
             const initMsg = [{ id: Date.now(), text: initialText, sender: 'ai', timestamp: fmtTime() }];
-            await persistChatMessages(activeChatId, initMsg);
+            await persistChatMessages(activeChatId, initMsg, { summary: '', lastSummarizedMsgId: null });
             setMessages(initMsg);
         } else {
-            await persistChatMessages(activeChatId, []);
+            await persistChatMessages(activeChatId, [], { summary: '', lastSummarizedMsgId: null });
             setMessages([]);
             lsClear(activeChatId);
         }
@@ -885,12 +930,15 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
 
     const handleRemoveChat = async () => {
         if (!activeChatId) return;
-        // Delete legacy messages first to satisfy foreign key constraint
-        await supabase.from('messages').delete().eq('chat_id', activeChatId);
-
-        await supabase.from('chats').delete().eq('id', activeChatId);
+        try {
+            await backendJson(`/api/chats/${activeChatId}`, { method: 'DELETE', sessionInfo });
+        } catch (e) {
+            console.error('Failed to delete chat:', e.message);
+        }
         lsClear(activeChatId); // wipe cache
 
+        setChatSummary('');
+        setLastSummarizedMsgId(null);
         setShowRemoveConfirm(false);
         setShowInfoModal(false);
         setActiveChatId(null);
@@ -910,11 +958,9 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
         // Second click (confirmed) → delete from DB + local state
         setConfirmDeleteSessionId(null);
 
-        // Delete legacy messages first to satisfy foreign key constraint
-        await supabase.from('messages').delete().eq('chat_id', sessionId);
-
-        const { error } = await supabase.from('chats').delete().eq('id', sessionId);
-        if (error) {
+        try {
+            await backendJson(`/api/chats/${sessionId}`, { method: 'DELETE', sessionInfo });
+        } catch (error) {
             console.error('❌ Failed to delete chat from DB:', error.message);
             return;
         }
@@ -991,6 +1037,92 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
             setIsSuggesting(false);
         }
     };
+
+    const checkAndTriggerSummarization = useCallback(async (allMsgs, currentSummary, currentLastId) => {
+        if (allMsgs.length <= 12 || isSummarizingRef.current || !userId || !activeChatId) return;
+
+        // Active dialogue window is the last 8 messages
+        const dialogueSize = 8;
+        const toSummarizeEndIndex = allMsgs.length - dialogueSize;
+        
+        // Find where the new chunk starts
+        let startIndex = 0;
+        if (currentLastId) {
+            const idx = allMsgs.findIndex(m => m.id === currentLastId);
+            if (idx !== -1) {
+                startIndex = idx + 1;
+            }
+        }
+
+        const chunkToSummarize = allMsgs.slice(startIndex, toSummarizeEndIndex);
+        
+        // We only trigger summarization if we have at least 5 new messages to summarize
+        if (chunkToSummarize.length < 5) return;
+
+        isSummarizingRef.current = true;
+        try {
+            const newDialogueText = chunkToSummarize
+                .map(m => `${m.sender === 'user' ? 'User' : (m.senderName || character?.name || 'AI')}: ${m.text}`)
+                .join('\n');
+
+            const targetModel = CHAT_MODEL;
+            const prompt = currentSummary
+                ? `Update the following conversation summary to incorporate the new dialogue events. Be highly concise and keep the summary under 150 words. Focus strictly on key plot points, facts, and character relationship developments. Avoid meta-commentary, introductory phrases, or bullet points. Output only the raw updated summary.
+
+[Current Summary]:
+${currentSummary}
+
+[New Dialogue]:
+${newDialogueText}`
+                : `Summarize the following roleplay conversation history between the User and the character ${character?.name || 'AI'} in a concise, narrative paragraph (under 150 words). Focus only on key events, character backstories, relationship developments, and major decisions. Avoid meta-commentary, introductory phrases, or bullet points. Output only the raw summary.
+
+[Dialogue]:
+${newDialogueText}`;
+
+            console.log('[Summarizer] Requesting update in background...');
+            const result = await backendJson('/api/ai/chat', {
+                method: 'POST',
+                sessionInfo,
+                body: {
+                    provider: 'groq',
+                    model: targetModel,
+                    messages: [{ role: 'user', content: prompt }],
+                    temperature: 0.7,
+                    max_tokens: 250,
+                    isSystemRequest: true,
+                },
+            });
+
+            const newSummary = result?.choices?.[0]?.message?.content
+                ?.replace(/<think>[\s\S]*?<\/think>/gi, '')
+                ?.replace(/<think>[\s\S]*/gi, '')
+                ?.replace(/^"|"$/g, '')
+                ?.trim();
+
+            if (newSummary) {
+                const newLastId = chunkToSummarize[chunkToSummarize.length - 1].id;
+                console.log('[Summarizer] Success. New Summary:', newSummary);
+                
+                // Save to state
+                setChatSummary(newSummary);
+                setLastSummarizedMsgId(newLastId);
+
+                // Save to DB and cache
+                const payload = {
+                    messages: allMsgs,
+                    summary: newSummary,
+                    lastSummarizedMsgId: newLastId
+                };
+                const encrypted = await encryptChatMessages(payload, userId);
+                await supabase.from('chats').update({ content: encrypted }).eq('id', activeChatId);
+                await saveEncryptedCache(activeChatId, allMsgs, newSummary, newLastId);
+            }
+        } catch (e) {
+            console.warn('[Summarizer] Failed to update summary:', e.message);
+        } finally {
+            isSummarizingRef.current = false;
+        }
+    }, [userId, activeChatId, character, sessionInfo, saveEncryptedCache]);
 
     // ── send message ───────────────────────────────────────────────────────
     const MAX_USER_MSG_WORDS = 500;
@@ -1268,6 +1400,11 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
                     if (uBanWords) userIdentityBlock += `\n- BANNED WORDS/TOPICS (NEVER USE OR MENTION THESE): ${uBanWords}.`;
                 }
 
+                let summaryBlock = '';
+                if (chatSummary && chatSummary.trim() !== '') {
+                    summaryBlock = `\n\nCONVERSATION SUMMARY SO FAR (Context of previous events):\n${chatSummary}`;
+                }
+
                 let systemPrompt = '';
 
                 if (character.isGroup) {
@@ -1275,7 +1412,7 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
 
                     const charDefs = (Array.isArray(character.characters) ? character.characters : []).map(c => `- ${c.name} (${c.age || '?'} y/o): ${c.public_description || c.persona || c.tags?.join(', ') || 'A unique individual'}`).join('\n');
                     systemPrompt = `You are the master AI managing an immersive GROUP ROLEPLAY CHAT named "${character.title}".
-SCENE / SCENARIO: ${character.desc || character.scenario || 'A lively conversation between multiple people.'}${secretBlock}${userIdentityBlock}
+SCENE / SCENARIO: ${character.desc || character.scenario || 'A lively conversation between multiple people.'}${secretBlock}${summaryBlock}${userIdentityBlock}
 Your job is to seamlessly embody the following characters:
 ${charDefs}
 
@@ -1292,7 +1429,7 @@ CRITICAL RULES FOR GROUP CHAT:
 
 IDENTITY: ${character.desc || 'A charming, unique companion.'}
 TRAITS: ${tags.join(', ') || 'friendly, kind'}
-TONE: ${toneGuide}${userIdentityBlock}
+TONE: ${toneGuide}${summaryBlock}${userIdentityBlock}
 ${settingsBlock}
 
 CRITICAL FORMATTING RULES:
@@ -1308,8 +1445,8 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                 const thumbsBlock = buildThumbsPromptBlock();
                 if (thumbsBlock) systemPrompt += thumbsBlock;
 
-                // Always send the last 20 messages to ensure maximum contextual awareness
-                const history = intermediateMessages.slice(-20).map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: (character.isGroup && m.sender === 'ai' && m.senderName) ? `${m.senderName}: ${m.text}` : m.text }));
+                // Token-efficient sliding window: send the last 8 messages + running summary
+                const history = intermediateMessages.slice(-8).map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: (character.isGroup && m.sender === 'ai' && m.senderName) ? `${m.senderName}: ${m.text}` : m.text }));
                 const apiMessages = [{ role: 'system', content: systemPrompt }, ...history];
 
                 if (isContinue) {
@@ -1364,6 +1501,9 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                     }
 
                     aiResponseText = json?.choices?.[0]?.message?.content || aiResponseText;
+                    if (aiResponseText) {
+                        aiResponseText = aiResponseText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '').trim();
+                    }
 
                     if (character.isGroup) {
                         const match = aiResponseText.match(/^(?:[*_]+)?([a-zA-Z][a-zA-Z0-9 _'-]{0,40}?)(?:[*_]+)?\s*:\s*(.*)/is);
@@ -1412,6 +1552,9 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                     if (res.ok) {
                         const json = await res.json();
                         aiResponseText = json.choices[0].message.content;
+                        if (aiResponseText) {
+                            aiResponseText = aiResponseText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '').trim();
+                        }
 
                         if (character.isGroup) {
                             // Extract "Name: " prefix — supports multi-word names
@@ -1449,8 +1592,11 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
 
             // Perform side effects OUTSIDE the state setter to ensure purity and avoid race conditions
             const messagesToSave = [...(messages || []), aiMsg].slice(-(MSG_LIMIT));
-            void saveEncryptedCache(activeChatId, messagesToSave);
+            void saveEncryptedCache(activeChatId, messagesToSave, chatSummary, lastSummarizedMsgId);
             void persistChatMessages(activeChatId, messagesToSave)
+                .then(() => {
+                    void checkAndTriggerSummarization(messagesToSave, chatSummary, lastSummarizedMsgId);
+                })
                 .catch((error) => {
                     console.error('DB update AI msg threw:', error.message);
                 });
@@ -1475,7 +1621,7 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                     if (updated.length > MSG_LIMIT) {
                         finalMessages = updated.slice(updated.length - MSG_LIMIT);
                     }
-                    void saveEncryptedCache(activeChatId, finalMessages);
+                    void saveEncryptedCache(activeChatId, finalMessages, chatSummary, lastSummarizedMsgId);
                     void persistChatMessages(activeChatId, finalMessages);
                     return finalMessages;
                 });

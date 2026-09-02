@@ -1,0 +1,9 @@
+node_modules
+my-app/node_modules
+my-app/dist
+.git
+.env
+.env.local
+scratch
+user_tokens.json
+npm-debug.log

@@ -18,6 +18,7 @@ import bs58 from 'bs58';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { ethers } from 'ethers';
 import { fulfillOrder } from './db.mjs';
+import Redis from 'ioredis';
 
 
 const TRON_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
@@ -66,7 +67,7 @@ const env = {
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
     groqApiKey: process.env.GROQ_API_KEY || '',
-    groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+    groqModel: process.env.GROQ_MODEL || 'qwen/qwen3.6-27b',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
     wavespeedApiKey: process.env.WAVESPEED_API_KEY || '',
@@ -81,7 +82,32 @@ const env = {
     cryptogatewayApiKey: process.env.CRYPTOGATEWAY_API_KEY || '',
     webhookSecret: process.env.WEBHOOK_SECRET || '',
     viteBackendUrl: process.env.VITE_BACKEND_URL || 'localhost:4000',
+    redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
 };
+
+const redis = (() => {
+    try {
+        const client = new Redis(env.redisUrl, {
+            maxRetriesPerRequest: 1,
+            connectTimeout: 2000,
+            lazyConnect: true,
+        });
+        client.connect().catch((err) => {
+            console.warn('[Redis] Connection failed. Falling back to direct database operations.');
+        });
+        let loggedError = false;
+        client.on('error', (err) => {
+            if (!loggedError) {
+                console.warn('[Redis] Connection error: Redis is offline/unavailable. Graceful database fallback is active.');
+                loggedError = true;
+            }
+        });
+        return client;
+    } catch (e) {
+        console.warn('[Redis] Failed to initialize ioredis:', e.message);
+        return null;
+    }
+})();
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
@@ -122,7 +148,7 @@ function setCors(req, res) {
     const allowAny = env.allowedOrigins.length === 0;
 
     // Safety check to ensure we always allow your Netlify domain specifically, regardless of protocol
-    const isNetlify = origin && origin.includes('dreamailove.netlify.app');
+    const isNetlify = origin && (origin.includes('dreamailove.netlify.app') || origin.includes('luvorastudiolove.netlify.app') || origin.includes('luvorastudio.netlify.app') || origin.includes('luvora.netlify.app'));
     const allowedOrigin = isNetlify ? origin : (allowAny ? (origin || '*') : (origin && env.allowedOrigins.includes(origin) ? origin : env.allowedOrigins[0]));
 
     if (allowedOrigin) {
@@ -399,14 +425,36 @@ async function proxyChat(payload) {
     const safePayload = normalizeChatPayload(payload);
     const { provider, ...upstreamPayload } = safePayload;
 
+    const upstreamMaxTokens = upstreamPayload.max_tokens || 1024;
+    const adjustedMaxTokens = Math.max(upstreamMaxTokens, 2048);
+
+    const targetGroqModel = upstreamPayload.model || env.groqModel;
+    const targetGeminiModel = upstreamPayload.model || env.geminiModel;
+
+    const restrictReasoning = (model, msgs) => {
+        const isReasoning = String(model).toLowerCase().includes('qwen') || String(model).toLowerCase().includes('think');
+        if (isReasoning && Array.isArray(msgs)) {
+            return msgs.map((m, idx) => 
+                idx === 0 && m.role === 'system'
+                    ? { ...m, content: m.content + '\n\n[SYSTEM NOTE: Please keep your internal reasoning (<think>...</think>) extremely brief and concise. Do not write more than 30-50 words of reasoning inside the <think> block before outputting your actual response.]' }
+                    : m
+            );
+        }
+        return msgs;
+    };
+
     const groqPayload = {
         ...upstreamPayload,
-        model: upstreamPayload.model || env.groqModel,
+        model: targetGroqModel,
+        max_tokens: adjustedMaxTokens,
+        messages: restrictReasoning(targetGroqModel, upstreamPayload.messages),
     };
 
     const geminiPayload = {
         ...upstreamPayload,
-        model: upstreamPayload.model || env.geminiModel,
+        model: targetGeminiModel,
+        max_tokens: adjustedMaxTokens,
+        messages: restrictReasoning(targetGeminiModel, upstreamPayload.messages),
     };
 
     const tryGeminiFirst = provider === 'gemini' || (provider === 'auto' && Boolean(env.geminiApiKey));
@@ -436,7 +484,28 @@ async function proxyChat(payload) {
     for (const attempt of attempts) {
         try {
             const result = await callOpenAiCompatibleApi(attempt);
-            if (result.ok) return result.data;
+            if (result.ok) {
+                console.log('[proxyChat] Raw response data:', JSON.stringify(result.data, null, 2));
+                if (result.data?.error) {
+                    throw new Error(
+                        typeof result.data.error === 'string'
+                            ? result.data.error
+                            : result.data.error.message || JSON.stringify(result.data.error)
+                    );
+                }
+                if (!Array.isArray(result.data?.choices) || result.data.choices.length === 0) {
+                    throw new Error('API response is missing choices');
+                }
+                for (const choice of result.data.choices) {
+                    if (choice?.message?.content) {
+                        let content = choice.message.content;
+                        content = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
+                        content = content.replace(/<think>[\s\S]*/gi, '');
+                        choice.message.content = content.trim();
+                    }
+                }
+                return result.data;
+            }
             lastFailure = result;
         } catch (error) {
             lastFailure = error;
@@ -627,7 +696,7 @@ async function generateWaveSpeedImages({ prompt, width, height, count = 1, model
                 for (const rawUrl of rawUrls) {
                     try {
                         const uploadResult = await cloudinary.uploader.upload(rawUrl, {
-                            folder: 'dreamai_generated',
+                            folder: 'luvora_generated',
                             resource_type: 'image',
                         });
                         generated.push(uploadResult.secure_url);
@@ -1145,20 +1214,205 @@ const server = createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'GET' && requestUrl.pathname === '/api/chats') {
+            const user = await getAuthenticatedUser(req);
+            const { data, error } = await adminSupabase
+                .from('chats')
+                .select('*, characters(id, name, images, persona, public_description, age, tags, likes, username, uuid, is_public)')
+                .eq('user_uuid', user.id)
+                .order('created_at', { ascending: false });
+            if (error) {
+                sendJson(res, 500, { error: error.message });
+                return;
+            }
+            sendJson(res, 200, data || []);
+            return;
+        }
+
+        if (req.method === 'POST' && requestUrl.pathname === '/api/chats') {
+            const user = await getAuthenticatedUser(req);
+            const body = await readJson(req);
+            const { character_id, title, content } = body;
+
+            const { data, error } = await adminSupabase
+                .from('chats')
+                .insert({
+                    user_uuid: user.id,
+                    character_id,
+                    title,
+                    content
+                })
+                .select()
+                .single();
+
+            if (error) {
+                sendJson(res, 500, { error: error.message });
+                return;
+            }
+
+            if (redis && redis.status === 'ready') {
+                try {
+                    await redis.set(`chat:${data.id}`, JSON.stringify(data), 'EX', 7200);
+                } catch (e) {
+                    console.warn('[Redis] Cache write failed on create:', e.message);
+                }
+            }
+
+            sendJson(res, 200, data);
+            return;
+        }
+
+        if (req.method === 'POST' && requestUrl.pathname === '/api/chats/save') {
+            const user = await getAuthenticatedUser(req);
+            const body = await readJson(req);
+            const { chatId, content } = body;
+
+            if (!chatId || !content) {
+                sendJson(res, 400, { error: 'chatId and content are required' });
+                return;
+            }
+
+            let cacheUpdated = false;
+            if (redis && redis.status === 'ready') {
+                try {
+                    const existingRaw = await redis.get(`chat:${chatId}`);
+                    let updatedChat;
+                    if (existingRaw) {
+                        const existing = JSON.parse(existingRaw);
+                        updatedChat = { ...existing, content };
+                    } else {
+                        const { data } = await adminSupabase.from('chats').select('*').eq('id', chatId).single();
+                        updatedChat = data ? { ...data, content } : { id: chatId, user_uuid: user.id, content };
+                    }
+                    await redis.set(`chat:${chatId}`, JSON.stringify(updatedChat), 'EX', 7200);
+                    cacheUpdated = true;
+                } catch (e) {
+                    console.warn('[Redis] Cache save failed:', e.message);
+                }
+            }
+
+            const { error } = await adminSupabase
+                .from('chats')
+                .update({ content })
+                .eq('id', chatId)
+                .eq('user_uuid', user.id);
+
+            if (error) {
+                sendJson(res, 500, { error: error.message });
+                return;
+            }
+
+            sendJson(res, 200, { ok: true, cached: cacheUpdated });
+            return;
+        }
+
+        if (req.method === 'DELETE' && requestUrl.pathname.startsWith('/api/chats/')) {
+            const user = await getAuthenticatedUser(req);
+            const parts = requestUrl.pathname.split('/');
+            const chatId = parts[parts.length - 1];
+
+            if (!chatId) {
+                sendJson(res, 400, { error: 'chatId is required' });
+                return;
+            }
+
+            if (redis && redis.status === 'ready') {
+                try {
+                    await redis.del(`chat:${chatId}`);
+                } catch (e) {
+                    console.warn('[Redis] Cache eviction failed:', e.message);
+                }
+            }
+
+            await adminSupabase.from('messages').delete().eq('chat_id', chatId);
+
+            const { error } = await adminSupabase
+                .from('chats')
+                .delete()
+                .eq('id', chatId)
+                .eq('user_uuid', user.id);
+
+            if (error) {
+                sendJson(res, 500, { error: error.message });
+                return;
+            }
+
+            sendJson(res, 200, { ok: true });
+            return;
+        }
+
+        if (req.method === 'GET' && requestUrl.pathname.startsWith('/api/chats/')) {
+            const parts = requestUrl.pathname.split('/');
+            const chatId = parts[parts.length - 1];
+
+            if (chatId && chatId !== 'chats') {
+                const user = await getAuthenticatedUser(req);
+
+                if (redis && redis.status === 'ready') {
+                    try {
+                        const cached = await redis.get(`chat:${chatId}`);
+                        if (cached) {
+                            const chatData = JSON.parse(cached);
+                            if (chatData.user_uuid === user.id) {
+                                sendJson(res, 200, chatData);
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[Redis] Cache read failed:', e.message);
+                    }
+                }
+
+                const { data, error } = await adminSupabase
+                    .from('chats')
+                    .select('*, characters(id, name, images, persona, public_description, age, tags, likes, username, uuid, is_public)')
+                    .eq('id', chatId)
+                    .eq('user_uuid', user.id)
+                    .single();
+
+                if (error) {
+                    sendJson(res, 404, { error: 'Chat not found' });
+                    return;
+                }
+
+                if (redis && redis.status === 'ready' && data) {
+                    try {
+                        await redis.set(`chat:${chatId}`, JSON.stringify(data), 'EX', 7200);
+                    } catch (e) {
+                        console.warn('[Redis] Cache write failed:', e.message);
+                    }
+                }
+
+                sendJson(res, 200, data);
+                return;
+            }
+        }
+
         if (req.method === 'POST' && requestUrl.pathname === '/api/ai/chat') {
             const user = await getAuthenticatedUser(req);
-
-            // Check Daily Limit
-            if (!(await applyUserDailyLimit(user.id, res))) return;
-
-            // Check Monthly Token Limit
-            if (!(await checkMonthlyTokenLimit(user.id, res))) return;
-
-            // Deduct 1 strict server-side token per chat request
-            if (!(await handleCoinDeduction(user.id, 1, res))) return;
-
             const payload = await readJson(req);
+
+            const isSystemSummary = payload?.isSystemRequest === true &&
+                Array.isArray(payload.messages) &&
+                payload.messages.length === 1 &&
+                typeof payload.messages[0]?.content === 'string' &&
+                (payload.messages[0].content.includes('Summarize the following') ||
+                 payload.messages[0].content.includes('Update the following conversation summary'));
+
+            if (!isSystemSummary) {
+                // Check Daily Limit
+                if (!(await applyUserDailyLimit(user.id, res))) return;
+
+                // Check Monthly Token Limit
+                if (!(await checkMonthlyTokenLimit(user.id, res))) return;
+
+                // Deduct 1 strict server-side token per chat request
+                if (!(await handleCoinDeduction(user.id, 1, res))) return;
+            }
+
+            console.log('[Chat Route] Received payload model:', payload?.model, isSystemSummary ? '(System Summary Request)' : '');
             const data = await proxyChat(payload);
+            console.log('[Chat Route] Proxy response content:', data?.choices?.[0]?.message?.content);
 
             // Track tokens from LLM usage block
             const totalTokens = data?.usage?.total_tokens || 0;
@@ -1251,7 +1505,7 @@ const server = createServer(async (req, res) => {
                     coin: 'LTC',
                     amount: amount,
                     order_id: order_id,
-                    redirect_url: `https://dreamaistudio.com/`, // Production frontend URL or root
+                    redirect_url: `https://luvorastudio.com/`, // Production frontend URL or root
                     webhook_url: `https://${env.viteBackendUrl}/api/webhooks/crypto`
                 })
             });
@@ -1350,6 +1604,7 @@ const server = createServer(async (req, res) => {
         console.log(`[404] Unhandled route: ${req.method} ${requestUrl.pathname}`);
         sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
+        console.error('[Route Error] Error occurred:', error);
         const statusCode = /missing bearer token|invalid or expired session/i.test(error.message) ? 401 : 500;
         sendJson(res, statusCode, { error: error.message || 'Internal server error' });
     }

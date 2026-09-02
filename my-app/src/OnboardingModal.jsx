@@ -113,7 +113,7 @@ export default function OnboardingModal({ session, onComplete }) {
                         </div>
                     </div>
 
-                    <h2 className="text-2xl font-black text-white text-center mb-2">Welcome to DreamAI</h2>
+                    <h2 className="text-2xl font-black text-white text-center mb-2">Welcome to Luvora</h2>
                     <p className="text-gray-400 text-center text-sm mb-6">Let's set up your profile. You can change these later.</p>
 
                     {error && (

@@ -5,7 +5,7 @@ import MediaFrame from './MediaFrame';
 import { resolveCharacterMedia } from './mediaUtils';
 
 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
-const CHAT_MODEL = 'llama-3.1-8b-instant';
+const CHAT_MODEL = 'qwen/qwen3.6-27b';
 
 export default function CallView({ character, sessionInfo, onEndCall, user, messages = [], chatSettings = {} }) {
     // ── State ──
@@ -220,7 +220,10 @@ CRITICAL VOICE CALL RULES:
                 },
             });
 
-            const aiText = json?.choices?.[0]?.message?.content || '';
+            let aiText = json?.choices?.[0]?.message?.content || '';
+            if (aiText) {
+                aiText = aiText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '').trim();
+            }
             // Clean any asterisk actions out for voice
             const cleanText = aiText.replace(/\*[^*]+\*/g, '').replace(/\*/g, '').trim();
 

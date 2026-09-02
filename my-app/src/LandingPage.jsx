@@ -179,7 +179,8 @@ const PERSONALITIES = [
 export default function LandingPage({
     onLogin = () => console.log('Login clicked'),
     onGetStarted = () => console.log('Get Started clicked'),
-    onOpenPolicies = () => console.log('Policies clicked')
+    onOpenPolicies = () => console.log('Policies clicked'),
+    onSkipSignIn = () => console.log('Skip sign in clicked')
 }) {
     const [step, setStep] = useState(1);
     const [gender, setGender] = useState('Female');
@@ -313,16 +314,19 @@ export default function LandingPage({
                 <div className="flex items-center gap-2.5">
                     <img
                         src="/logo.svg"
-                        alt="DreamAI logo"
+                        alt="Luvora logo"
                         className="h-8 w-8 rounded-xl object-contain"
                         onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
                     />
-                    <div className="hidden h-8 w-8 rounded-xl items-center justify-center bg-gradient-to-br from-purple-600 to-pink-600 text-white font-black text-sm shadow-[0_0_12px_rgba(168,85,247,0.5)]">D</div>
+                    <div className="hidden h-8 w-8 rounded-xl items-center justify-center bg-gradient-to-br from-purple-600 to-pink-600 text-white font-black text-sm shadow-[0_0_12px_rgba(168,85,247,0.5)]">L</div>
                     <span className="text-lg font-black tracking-tight">
-                        <span className="text-white">Dream</span><span className="text-purple-400">AI</span>
+                        <span className="text-white">Luvora</span>
                     </span>
                 </div>
                 <div className="flex items-center gap-3">
+                    <button onClick={onSkipSignIn} className="px-4 py-2 rounded-xl text-sm font-bold text-gray-400 hover:text-white transition-all">
+                        Skip Sign In
+                    </button>
                     <button onClick={handleDice} className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all" title="Randomize">
                         <Dices size={18} className="text-gray-300" />
                     </button>
@@ -340,7 +344,7 @@ export default function LandingPage({
                             Unlock the Ultimate <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">AI Experience</span>
                         </h1>
                         <p className="text-gray-300 text-base sm:text-lg max-w-2xl mx-auto mb-10 font-medium">
-                            Step into a fully private, end-to-end encrypted ecosystem. DreamAI is your limitless studio for uncensored creativity, deep conversations, and immersive roleplay.
+                            Step into a fully private, end-to-end encrypted ecosystem. Luvora is your limitless studio for uncensored creativity, deep conversations, and immersive roleplay.
                         </p>
 
                         <div className="flex flex-col items-center gap-3 mb-6">
@@ -352,6 +356,9 @@ export default function LandingPage({
                             <p className="text-xs text-pink-300 font-bold tracking-widest uppercase drop-shadow-sm mt-2">
                                 Free credits available • NO Credit card required for trial
                             </p>
+                            <button onClick={onSkipSignIn} className="mt-3 text-sm text-gray-400 hover:text-white font-semibold underline underline-offset-4 transition-all">
+                                Skip sign in & browse
+                            </button>
                         </div>
                     </div>
 

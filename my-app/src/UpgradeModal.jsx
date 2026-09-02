@@ -85,7 +85,7 @@ export default function UpgradeModal({
                             <Zap size={20} className="text-purple-500" />
                         </div>
                         <div>
-                            <h2 className="text-white font-bold text-xl tracking-tight">DreamAI Premium</h2>
+                            <h2 className="text-white font-bold text-xl tracking-tight">Luvora Premium</h2>
                             <p className="text-xs text-gray-500 mt-0.5">
                                 Current Status: <span className="text-purple-400 font-semibold">{isPremium ? 'Lifetime Pro' : `${coinBalance} Coins`}</span>
                             </p>
@@ -256,7 +256,7 @@ function PremiumTab({ userUuid, sessionInfo, onPremiumGranted, onClose, coinBala
                         </div>
                         <div className="mt-4 pt-4 border-t border-gray-800/80 flex items-center gap-2">
                             <span className="text-gray-500 text-xs font-bold uppercase tracking-wide">Premium Support:</span>
-                            <a href="mailto:dreamaistudio02@gmail.com" className="text-purple-400 text-xs font-semibold hover:text-purple-300">dreamaistudio02@gmail.com</a>
+                            <a href="mailto:support@luvora.love" className="text-purple-400 text-xs font-semibold hover:text-purple-300">support@luvora.love</a>
                         </div>
                     </div>
                 </div>
@@ -761,7 +761,7 @@ function CryptoGatePanel({ userUuid, plan, pack, usdPrice, kind, sessionInfo, on
                 <Shield size={24} className="text-blue-400" />
                 <p className="text-blue-300 font-semibold text-sm">Secure Crypto Payment</p>
                 <p className="text-blue-400/80 text-xs leading-relaxed max-w-xs">
-                    You'll be redirected to CryptoGate to complete your payment securely via USDC or LTC.
+                    You'll be redirected to CryptoGate to complete your payment securely via LTC or USDC.
                 </p>
             </div>
 

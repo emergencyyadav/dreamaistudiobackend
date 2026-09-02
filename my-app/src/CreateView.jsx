@@ -13,7 +13,7 @@ import { backendJson, hasBackend } from './backendApi';
 import CharacterCreatedModal from './CharacterCreatedModal';
 
 const CREATED_CHARACTER_EVENT = 'dreamai:character-created';
-const CHAT_MODEL = 'llama-3.1-8b-instant';
+const CHAT_MODEL = 'qwen/qwen3.6-27b';
 
 export default function CreateView({ user, sessionInfo, onRequireLogin, onStartChat, coinBalance, onBurnCoin, onRequireUpgrade, onGuard }) {
     const [step, setStep] = useState(1);

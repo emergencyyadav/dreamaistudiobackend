@@ -419,6 +419,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isVisitor, setIsVisitor] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -474,7 +475,7 @@ export default function App() {
   ];
   const [notifications, setNotifications] = useState([
     { id: 1, type: 'like', text: 'Your character received a new like!', time: '2m ago', read: false },
-    { id: 2, type: 'welcome', text: 'Welcome to DreamAI! Start by creating a character.', time: '1h ago', read: false },
+    { id: 2, type: 'welcome', text: 'Welcome to Luvora! Start by creating a character.', time: '1h ago', read: false },
     { id: 3, type: 'update', text: 'New features: Video character cards now supported!', time: '3h ago', read: true },
   ]);
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -500,7 +501,7 @@ export default function App() {
   const [hasAgreed18, setHasAgreed18] = useState(() => localStorage.getItem('age_verified') === 'true');
   const [bannedError, setBannedError] = useState(null);
   const [guardModal, setGuardModal] = useState({ isOpen: false, reason: '' });
-  const showLanding = !user && !authLoading;
+  const showLanding = !user && !authLoading && !isVisitor;
   const showCookieBanner = !!user && hasAgreed18 && !isAgeGateOpen;
   const openPolicy = (section = 'terms') => setActivePolicy(section);
 
@@ -719,6 +720,7 @@ export default function App() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSessionInfo(session);
       if (session) {
+        setIsVisitor(false);
         setIsAuthOpen(false);
         setAuthMessage("");
         setBannedError(null);
@@ -984,7 +986,7 @@ export default function App() {
             >
               <Zap size={22} className="text-purple-400 group-hover:text-purple-300 group-hover:drop-shadow-[0_0_12px_rgba(168,85,247,0.9)] transition-all avoid-invert" fill="currentColor" />
               <span className="font-black text-lg tracking-tight group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.4)] transition-all">
-                <span className="text-white">Dream</span><span className="text-purple-400 group-hover:text-purple-300">AI</span>
+                <span className="text-white">Luvora</span>
               </span>
             </div>
           )}
@@ -1000,6 +1002,12 @@ export default function App() {
               accent={item.accent}
               sidebarOpen={sidebarOpen}
               onClick={() => {
+                if (!user && item.label !== "Explore") {
+                  setAuthMessage(`Please sign in or sign up to access ${item.label}.`);
+                  setIsAuthOpen(true);
+                  if (mobile) setMobileSidebarOpen(false);
+                  return;
+                }
                 if (item.label === "Explore") setForceRefresh(p => p + 1);
                 setActiveView(item.label);
                 setActiveCreatorProfile(null);
@@ -1011,7 +1019,16 @@ export default function App() {
 
         <div className="px-3 mb-4">
           <button
-            onClick={() => { setShowUpgradeModal(true); if (mobile) setMobileSidebarOpen(false); }}
+            onClick={() => {
+              if (!user) {
+                setAuthMessage("Create a free account to unlock premium upgrades.");
+                setIsAuthOpen(true);
+                if (mobile) setMobileSidebarOpen(false);
+                return;
+              }
+              setShowUpgradeModal(true);
+              if (mobile) setMobileSidebarOpen(false);
+            }}
             className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl ${isPremium ? 'bg-gray-800 text-purple-300 hover:bg-gray-700' : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:shadow-purple-500/40 hover:scale-[1.03] active:scale-95'} font-semibold transition-all duration-300 hover:shadow-lg ${!sidebarOpen ? 'justify-center' : ''}`}
           >
             {isPremium ? <Star size={20} className="flex-shrink-0" /> : <Crown size={20} className="flex-shrink-0" />}
@@ -1083,7 +1100,15 @@ export default function App() {
                     }
                     setIsMoreExpanded(false);
                     setIsSupportExpanded(false);
-                    if (item.label === "Profile") setActiveView("Profile");
+                    if (item.label === "Profile") {
+                      if (!user) {
+                        setAuthMessage("Sign in to view and customize your profile.");
+                        setIsAuthOpen(true);
+                        if (mobile) setMobileSidebarOpen(false);
+                        return;
+                      }
+                      setActiveView("Profile");
+                    }
                     setActiveCreatorProfile(null);
                     if (mobile) setMobileSidebarOpen(false);
                   }}
@@ -1126,8 +1151,7 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <span className="font-black text-lg text-white tracking-tight">Dream</span>
-              <span className="font-black text-lg text-purple-400 tracking-tight">AI</span>
+              <span className="font-black text-lg text-white tracking-tight">Luvora</span>
             </div>
             <div className="flex gap-1">
               {[0, 1, 2].map(i => (
@@ -1155,6 +1179,7 @@ export default function App() {
               setIsAuthOpen(true);
             }}
             onOpenPolicies={openPolicy}
+            onSkipSignIn={() => setIsVisitor(true)}
           />
         </div>
       ) : (
@@ -1182,7 +1207,7 @@ export default function App() {
                 >
                   <Zap size={20} className="text-purple-400 avoid-invert" fill="currentColor" />
                   <span className="font-black text-base tracking-tight">
-                    <span className="text-white">Dream</span><span className="text-purple-400">AI</span>
+                    <span className="text-white">Luvora</span>
                   </span>
                 </button>
 
@@ -1390,6 +1415,11 @@ export default function App() {
                   creatorUsername={activeCreatorProfile}
                   onBack={() => setActiveCreatorProfile(null)}
                   onCharacterClick={(char) => {
+                    if (!user) {
+                      setAuthMessage("Create an account or sign in to start chatting.");
+                      setIsAuthOpen(true);
+                      return;
+                    }
                     setActiveCreatorProfile(null);
                     setActiveChatCharacter(char);
                     setActiveView("Chat");
@@ -1502,12 +1532,22 @@ export default function App() {
                   {/* Promo Banner Slider */}
                   <PromoSlider onSlideClick={(slide) => {
                     if (slide.id === 1) {
+                      if (!user) {
+                        setAuthMessage("Sign in to upgrade to Premium Unlimited!");
+                        setIsAuthOpen(true);
+                        return;
+                      }
                       setShowUpgradeModal(true);
                     } else if (slide.id === 2) {
+                      if (!user) {
+                        setAuthMessage("Sign in to generate stunning images!");
+                        setIsAuthOpen(true);
+                        return;
+                      }
                       setActiveView("Generate");
                     } else if (slide.id === 3) {
                       setAuthMessage("Create an account to join the Creator Payouts program!");
-                      setIsAuthOpen(!user);
+                      setIsAuthOpen(true);
                     }
                   }} />
 
@@ -1872,6 +1912,11 @@ export default function App() {
                     {/* CTA */}
                     <button
                       onClick={() => {
+                        if (!user) {
+                          setAuthMessage("Create an account or sign in to start chatting with companions.");
+                          setIsAuthOpen(true);
+                          return;
+                        }
                         setActiveChatCharacter(normalizeCharacter(previewCharacter));
                         setPreviewCharacter(null);
                         setActiveView("Chat");
@@ -1920,7 +1965,7 @@ export default function App() {
               <div className="w-16 h-16 mx-auto bg-red-500/10 rounded-full flex items-center justify-center mb-4">
                 <LogOut size={28} className="text-red-400" />
               </div>
-              <h3 className="text-xl font-bold text-white mb-2">Log out of DreamAI?</h3>
+              <h3 className="text-xl font-bold text-white mb-2">Log out of Luvora?</h3>
               <p className="text-gray-400 text-sm mb-6">You can always log back in at any time to access your generated characters.</p>
               <div className="flex gap-3">
                 <button onClick={() => setShowLogoutConfirm(false)} className="flex-1 py-3 rounded-xl bg-gray-800 text-white font-semibold hover:bg-gray-700 transition">Cancel</button>

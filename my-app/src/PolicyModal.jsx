@@ -7,15 +7,15 @@ const POLICY_CONTENT = {
         icon: FileText,
         updated: 'March 31, 2026',
         title: 'Terms of Service',
-        intro: 'These terms explain the rules for using DreamAI, including account eligibility, acceptable use, and how platform features are provided.',
+        intro: 'These terms explain the rules for using Luvora, including account eligibility, acceptable use, and how platform features are provided.',
         sections: [
             {
-                heading: 'Who can use DreamAI',
+                heading: 'Who can use Luvora',
                 body: 'You must be legally allowed to use this service in your region and you are responsible for keeping your account access secure. After login, age verification is required before you can continue into the full experience.'
             },
             {
                 heading: 'Acceptable use',
-                body: 'You may not use DreamAI to generate or promote illegal content, exploitation, harassment, or attempts to bypass safety protections. Severe violations can lead to immediate suspension or permanent removal.'
+                body: 'You may not use Luvora to generate or promote illegal content, exploitation, harassment, or attempts to bypass safety protections. Severe violations can lead to immediate suspension or permanent removal.'
             },
             {
                 heading: 'Service behavior',
@@ -32,7 +32,7 @@ const POLICY_CONTENT = {
         icon: Lock,
         updated: 'March 31, 2026',
         title: 'Privacy Policy',
-        intro: 'This page explains what DreamAI stores, how account and app data are used, and the principles behind data handling in the product.',
+        intro: 'This page explains what Luvora stores, how account and app data are used, and the principles behind data handling in the product.',
         sections: [
             {
                 heading: 'What we collect',
@@ -109,7 +109,7 @@ export default function PolicyModal({ isOpen, initialSection = 'terms', onClose 
                             Back
                         </button>
 
-                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-fuchsia-200/70">DreamAI Legal</p>
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-fuchsia-200/70">Luvora Legal</p>
                         <h2 className="mb-3 text-2xl font-semibold tracking-tight text-white">Policies</h2>
                         <p className="text-sm leading-relaxed text-white/50">
                             Clean, readable pages for the terms that matter while using the platform.

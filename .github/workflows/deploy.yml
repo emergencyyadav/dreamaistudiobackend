@@ -1,0 +1,33 @@
+name: Continuous Integration & Deployment
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm ci
+
+      - name: Check Backend Code
+        run: npm run build
+
+      - name: Install Frontend Dependencies
+        run: npm --prefix my-app ci
+
+      - name: Build Frontend Application
+        run: npm run frontend:build
