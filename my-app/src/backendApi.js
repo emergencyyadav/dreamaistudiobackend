@@ -9,11 +9,11 @@ export const BACKEND_URL = (() => {
     return url;
 })();
 
-export const hasBackend = import.meta.env.DEV || Boolean(BACKEND_URL);
+export const hasBackend = true;
 
 export const buildBackendUrl = (path) => {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    return `${BACKEND_URL}${normalizedPath}`;
+    return BACKEND_URL ? `${BACKEND_URL}${normalizedPath}` : normalizedPath;
 };
 
 export async function backendFetch(path, { sessionInfo, headers = {}, body, ...options } = {}) {
