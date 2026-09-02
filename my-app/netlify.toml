@@ -18,7 +18,7 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "https://dreamaistudiobackend-production-eef7.up.railway.app/api/:splat"
+  to = "https://dreamaistudiobackend-production-4174.up.railway.app/api/:splat"
   status = 200
   force = true
 
