@@ -126,8 +126,8 @@ Return ONLY the scenario text. Make it instantly set an immersive scene and mood
                 method: 'POST',
                 sessionInfo,
                 body: {
-                    provider: 'groq',
-                    model: 'qwen/qwen3.6-27b',
+                    provider: 'venice',
+                    model: 'kimi-k2-thinking',
                     messages: [{ role: 'system', content: prompt }],
                     temperature: 0.9,
                     max_tokens: 300,

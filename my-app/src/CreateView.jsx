@@ -7,13 +7,13 @@ import {
     X, Search
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { findBestMatchingImage, buildCharacterTags } from './imageSearch';
 import { checkContentSafe } from './guard';
 import { backendJson, hasBackend } from './backendApi';
 import CharacterCreatedModal from './CharacterCreatedModal';
 
 const CREATED_CHARACTER_EVENT = 'dreamai:character-created';
-const CHAT_MODEL = 'qwen/qwen3.6-27b';
+const CHAT_MODEL = 'kimi-k2-thinking';
+const CHARACTER_BASE_IMAGE_MODEL = 'krea-2-turbo';
 
 export default function CreateView({ user, sessionInfo, onRequireLogin, onStartChat, coinBalance, onBurnCoin, onRequireUpgrade, onGuard }) {
     const [step, setStep] = useState(1);
@@ -996,7 +996,7 @@ Do NOT include any extra text outside the JSON object.`;
                             method: 'POST',
                             sessionInfo,
                             body: {
-                                provider: 'groq',
+                                provider: 'venice',
                                 model: CHAT_MODEL,
                                 messages: apiMessages,
                                 response_format: { type: 'json_object' }
@@ -1019,21 +1019,20 @@ Do NOT include any extra text outside the JSON object.`;
                             console.error("Failed to parse AI JSON response", e);
                         }
                     } else {
-                        console.error("Failed to fetch from Groq");
+                        console.error("Failed to fetch from Venice");
                     }
                 } catch (apiErr) {
-                    console.warn("Groq API error or blocked. Using fallback traits.", apiErr.message);
+                    console.warn("Venice API error or blocked. Using fallback traits.", apiErr.message);
                 }
             }
 
             // ── Auto-generate best matching image via img gen api ──
-            const FALLBACK = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
             let bestImage = null;
 
             if (hasBackend) {
                 try {
                     const isRealistic = style === 'Realistic';
-                    const imageModel = isRealistic ? 'flux-2-dev' : 'wavespeed-ai/chroma';
+                    const imageModel = CHARACTER_BASE_IMAGE_MODEL;
 
                     // Use AI-extracted ethnicity if available, otherwise try to detect from user prompt, finally fall back to selected ethnicity
                     const imageEthnicity = extractedEthnicity || ethnicity;
@@ -1051,7 +1050,15 @@ Do NOT include any extra text outside the JSON object.`;
                         t.toLowerCase() !== style.toLowerCase() &&
                         t.toLowerCase() !== imageEthnicity.toLowerCase()
                     );
-                    const searchPrompt = `${qualityPrefix}, ${gender} ${imageEthnicity} person, ${uniqueTags.join(', ')}, ${persona}, ${environmentHint}`;
+                    const searchPrompt = [
+                        qualityPrefix,
+                        `Create the base portrait for this AI character exactly from the user's description: ${aiPrompt}`,
+                        `${gender} ${imageEthnicity} person`,
+                        uniqueTags.join(', '),
+                        persona,
+                        environmentHint,
+                        'single character, portrait composition, no text, no watermark'
+                    ].filter(Boolean).join(', ');
 
                     console.log('[Create/AI] Image prompt:', searchPrompt);
                     console.log('[Create/AI] Using model:', imageModel);
@@ -1076,17 +1083,12 @@ Do NOT include any extra text outside the JSON object.`;
                 } catch (imgErr) {
                     console.error('[Create/AI] ❌ Image generation FAILED:', imgErr.message);
                     console.error('[Create/AI] Full error:', imgErr);
+                    throw new Error(`Character image generation failed: ${imgErr.message}`);
                 }
             }
 
             if (!bestImage) {
-                try {
-                    const searchTags = buildCharacterTags({ gender, style });
-                    bestImage = await findBestMatchingImage([...searchTags, ...tags.slice(2)], FALLBACK);
-                } catch (fallbackErr) {
-                    console.warn("Fallback image search failed", fallbackErr);
-                    bestImage = FALLBACK;
-                }
+                throw new Error('Character image generation returned no image.');
             }
 
             // ── Generate public description (second-person, 100-200 words) ──
@@ -1108,7 +1110,7 @@ IMPORTANT RULES:
                             method: 'POST',
                             sessionInfo,
                             body: {
-                                provider: 'groq',
+                                provider: 'venice',
                                 model: CHAT_MODEL,
                                 messages: [
                                     { role: 'system', content: descPrompt },
@@ -1870,7 +1872,7 @@ IMPORTANT RULES:
                                     tagsArray = [...new Set([...tagsArray, ...parsedCustomTags])];
                                 }
 
-                                // Skip Groq generation if the user manually provided advanced details (saves API calls!)
+                                // Skip AI generation if the user manually provided advanced details (saves API calls!)
                                 const hasCustomPersona = customScenario.trim() || customPersonality.trim();
                                 if (hasCustomPersona) {
                                     // Create a smooth, natural-sounding description instead of technical brackets
@@ -1891,17 +1893,17 @@ IMPORTANT RULES:
                                     finalPersona = finalPersona.trim();
                                 }
 
-                                // STEP 1: Groq persona (optional, never fatal, skips if advanced is used)
+                                // STEP 1: AI persona (optional, never fatal, skips if advanced is used)
                                 if (hasBackend && !hasCustomPersona) {
                                     try {
-                                        console.log('[Create] Step 1: Groq persona...');
+                                        console.log('[Create] Step 1: Venice persona...');
                                         const systemPrompt = `You are an expert character writer for an AI companion application. Turn the provided list of physical traits, background, and personality into a concise, engaging 20-30 word summary character persona. Describe their vibe, appearance, and how they interact. Keep it under 30 words. Do NOT chat. Do not include introductory text. Just return the short description text.`;
-                                        const groqRes = {
+                                        const veniceRes = {
                                             ok: true, json: async () => backendJson('/api/ai/chat', {
                                                 method: 'POST',
                                                 sessionInfo,
                                                 body: {
-                                                    provider: 'groq',
+                                                    provider: 'venice',
                                                     model: CHAT_MODEL,
                                                     messages: [
                                                         { role: 'system', content: systemPrompt },
@@ -1912,17 +1914,17 @@ IMPORTANT RULES:
                                                 }
                                             })
                                         };
-                                        if (groqRes.ok) {
-                                            const groqData = await groqRes.json();
-                                            if (groqData.choices?.[0]?.message?.content) {
-                                                finalPersona = groqData.choices[0].message.content.trim();
+                                        if (veniceRes.ok) {
+                                            const veniceData = await veniceRes.json();
+                                            if (veniceData.choices?.[0]?.message?.content) {
+                                                finalPersona = veniceData.choices[0].message.content.trim();
                                                 console.log('[Create] Step 1 OK');
                                             }
                                         } else {
-                                            console.warn('[Create] Step 1: Groq returned', groqRes.status, '- using fallback.');
+                                            console.warn('[Create] Step 1: Venice returned', veniceRes.status, '- using fallback.');
                                         }
-                                    } catch (groqErr) {
-                                        console.warn('[Create] Step 1: Groq blocked/failed:', groqErr.message, '- using fallback.');
+                                    } catch (veniceErr) {
+                                        console.warn('[Create] Step 1: Venice blocked/failed:', veniceErr.message, '- using fallback.');
                                     }
                                 }
 
@@ -1946,7 +1948,7 @@ IMPORTANT RULES:
                                                 method: 'POST',
                                                 sessionInfo,
                                                 body: {
-                                                    provider: 'groq',
+                                                    provider: 'venice',
                                                     model: CHAT_MODEL,
                                                     messages: [
                                                         { role: 'system', content: descPrompt },
@@ -1972,13 +1974,12 @@ IMPORTANT RULES:
                                     }
                                 }
 
-                                // STEP 3: Image generation (optional, never fatal)
-                                const FALLBACK_IMG = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
+                                // STEP 3: Generate the character's base image.
                                 let bestImage = null;
                                 try {
                                     if (hasBackend) {
                                         const isRealistic = style === 'Realistic';
-                                        const imageModel = isRealistic ? 'flux-2-dev' : 'wavespeed-ai/chroma';
+                                        const imageModel = CHARACTER_BASE_IMAGE_MODEL;
 
                                         const qualityPrefix = isRealistic
                                             ? 'Photorealistic portrait of a character, seductive theme, casual portrait, natural skin texture, soft flattering lighting, shallow depth of field, ultra-detailed, high resolution'
@@ -1989,7 +1990,23 @@ IMPORTANT RULES:
                                             : 'beautifully detailed anime background, soft pastel tones, atmospheric lighting';
 
                                         const bodyDesc = `${bodyType} figure, ${skinTone} skin${['Female', 'Trans'].includes(gender) ? `, ${breastSize} breasts` : ''}, ${buttSize} butt`;
-                                        const imagePrompt = `${qualityPrefix}, ${charAge} year old ${gender}, ${ethnicity} descent, ${eyeColor} eyes, ${hairColor} ${hairStyle} hair, ${bodyDesc}, ${personality} personality, ${occupation}, ${hobby} enthusiast, ${finalPersona}, ${environmentHint}`;
+                                        const imagePrompt = [
+                                            qualityPrefix,
+                                            'Create the base portrait for this AI character from the user-selected traits and custom text.',
+                                            `${charAge} year old ${gender}`,
+                                            `${ethnicity} descent`,
+                                            `${eyeColor} eyes`,
+                                            `${hairColor} ${hairStyle} hair`,
+                                            bodyDesc,
+                                            `${personality} personality`,
+                                            occupation,
+                                            hobby ? `${hobby} enthusiast` : '',
+                                            customPersonality ? `Custom personality: ${customPersonality}` : '',
+                                            customScenario ? `User scenario: ${customScenario}` : '',
+                                            finalPersona,
+                                            environmentHint,
+                                            'single character, portrait composition, no text, no watermark'
+                                        ].filter(Boolean).join(', ');
 
                                         console.log('[Create/Manual] Image prompt:', imagePrompt);
                                         console.log('[Create/Manual] Using model:', imageModel);
@@ -2013,24 +2030,12 @@ IMPORTANT RULES:
                                         }
                                     }
                                 } catch (imgErr) {
-                                    console.warn('[Create] Step 3: Image generation failed:', imgErr.message, '- using fallback.');
+                                    console.warn('[Create] Step 3: Image generation failed:', imgErr.message);
+                                    throw new Error(`Character image generation failed: ${imgErr.message}`);
                                 }
 
                                 if (!bestImage) {
-                                    try {
-                                        const searchTags = buildCharacterTags({
-                                            gender, style, ethnicity,
-                                            skinTone, eyeColor, hairColor, hairStyle,
-                                            bodyType, breastSize, buttSize,
-                                            personality, occupation, relationship,
-                                            fetish, hobby, voice: finalSelectedVoiceName
-                                        });
-                                        bestImage = await findBestMatchingImage(searchTags, FALLBACK_IMG);
-                                        console.log('[Create] Step 3 OK (Cloudinary Fallback):', bestImage);
-                                    } catch (fallbackErr) {
-                                        console.warn('[Create] Step 3: Cloudinary search failed:', fallbackErr.message, '- using static fallback.');
-                                        bestImage = FALLBACK_IMG;
-                                    }
+                                    throw new Error('Character image generation returned no image.');
                                 }
 
                                 // STEP 4: Supabase insert (critical — if this fails we surface the exact error)

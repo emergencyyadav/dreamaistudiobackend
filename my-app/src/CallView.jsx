@@ -5,7 +5,7 @@ import MediaFrame from './MediaFrame';
 import { resolveCharacterMedia } from './mediaUtils';
 
 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
-const CHAT_MODEL = 'qwen/qwen3.6-27b';
+const CHAT_MODEL = 'kimi-k2-thinking';
 
 export default function CallView({ character, sessionInfo, onEndCall, user, messages = [], chatSettings = {} }) {
     // ── State ──
@@ -212,7 +212,7 @@ CRITICAL VOICE CALL RULES:
                 method: 'POST',
                 sessionInfo,
                 body: {
-                    provider: 'groq',
+                    provider: 'venice',
                     model: CHAT_MODEL,
                     messages: apiMessages,
                     max_tokens: 120,

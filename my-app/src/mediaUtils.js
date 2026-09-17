@@ -10,6 +10,7 @@ export function parseUrlList(value) {
 
     const trimmed = value.trim();
     if (!trimmed) return [];
+    if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return [trimmed];
 
     if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
         try {

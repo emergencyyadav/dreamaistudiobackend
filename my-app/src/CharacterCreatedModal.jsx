@@ -99,7 +99,14 @@ function SuccessCard({ character, onCreateAnother, onStartChat }) {
 
                 {/* Image */}
                 <div className="relative" style={{ aspectRatio: '3/4' }}>
-                    <img src={img} alt={name} className="w-full h-full object-cover" />
+                    <img
+                        src={img}
+                        alt={name}
+                        className="w-full h-full object-cover"
+                        onError={(event) => {
+                            event.currentTarget.src = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
+                        }}
+                    />
                     <div className="absolute inset-0"
                         style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.97) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.05) 100%)' }} />
 

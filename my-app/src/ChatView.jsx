@@ -15,7 +15,7 @@ import CallView from './CallView';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=600&h=800';
-const CHAT_MODEL = 'qwen/qwen3.6-27b';
+const CHAT_MODEL = 'kimi-k2-thinking';
 const fmtTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const MSG_LIMIT = 100; // rolling window per chat
 const lsKey = (chatId) => `dreamai_msgs_${chatId}`;
@@ -1011,7 +1011,7 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
         }
         setIsSuggesting(true);
         try {
-            // ── AI Provider: Gemini for chat features, Groq fallback ──
+            // AI Provider: Venice Kimi
             const targetModel = CHAT_MODEL;
 
             const recentMsgs = messages.slice(-4).map(m => `${m.sender === 'user' ? 'USER' : character.name}: ${m.text}`).join('\n');
@@ -1021,7 +1021,7 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
                 method: 'POST',
                 sessionInfo,
                 body: {
-                    provider: 'groq',
+                    provider: 'venice',
                     model: targetModel,
                     messages: [{ role: 'user', content: prompt }],
                     temperature: 0.8,
@@ -1084,7 +1084,7 @@ ${newDialogueText}`;
                 method: 'POST',
                 sessionInfo,
                 body: {
-                    provider: 'groq',
+                    provider: 'venice',
                     model: targetModel,
                     messages: [{ role: 'user', content: prompt }],
                     temperature: 0.7,
@@ -1217,12 +1217,19 @@ ${newDialogueText}`;
                     if (Array.isArray(charImg)) charImg = charImg[0];
                     if (typeof charImg === 'string' && charImg.startsWith('[')) { try { charImg = JSON.parse(charImg)[0] } catch (e) { } }
 
-                    const consistencyPrompt = `Photorealistic RAW photo of ${character.name}, a ${character.age ? character.age + ' year old' : ''} ${character.ethnicity || ''} person. ${character.desc || ''}. Scenario: ${text}`;
+                    const imageEditModel = 'qwen-edit';
+                    const consistencyPrompt = [
+                        `Edit the provided reference image of ${character.name}.`,
+                        'Keep the same face, identity, age, body type, hair, and recognizable character features.',
+                        character.desc ? `Character details: ${character.desc}.` : '',
+                        `User request: ${text}.`,
+                        'Photorealistic, high quality, highly detailed, polished composition.'
+                    ].filter(Boolean).join(' ');
 
                     if (onLog) {
                         onLog('image', `Generating image for ${character.name}`, {
                             prompt: consistencyPrompt,
-                            parameters: { width: 768, height: 1024, model: 'flux-2-dev' },
+                            parameters: { aspect_ratio: 'auto', model: imageEditModel },
                             character_context: character.desc || character.persona
                         });
                     }
@@ -1232,11 +1239,10 @@ ${newDialogueText}`;
                         sessionInfo,
                         body: {
                             prompt: consistencyPrompt,
-                            width: 768,
-                            height: 1024,
                             count: 1,
-                            model: 'flux-2-dev',
-                            image: charImg
+                            model: imageEditModel,
+                            image: charImg,
+                            aspect_ratio: 'auto'
                         },
                         signal: imgAbort.signal,
                     });
@@ -1267,7 +1273,7 @@ ${newDialogueText}`;
                                 sizeLabel: 'Portrait',
                                 sizeDisplay: '3:4',
                                 provider: 'backend',
-                                model: 'flux-2-dev',
+                                model: imageEditModel,
                                 source: 'chat',
                             }));
                             // Save to localStorage
@@ -1485,7 +1491,7 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                         method: 'POST',
                         sessionInfo,
                         body: {
-                            provider: 'groq',
+                            provider: 'venice',
                             model: targetModel,
                             messages: apiMessages,
                             max_tokens: maxTokens,
@@ -1537,7 +1543,7 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                     } catch (firstErr) {
                         if (firstErr.name === 'AbortError') throw firstErr;
                         console.warn('Direct API fallback is disabled.', firstErr.message);
-                        // Fallback: ALWAYS fall back to Groq with the Groq key
+                        // Direct client-side AI fallback is intentionally disabled.
                         const fallbackController = new AbortController();
                         abortControllerRef.current = fallbackController;
                         res = await fetch('/__backend_only__', {

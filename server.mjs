@@ -66,12 +66,12 @@ const env = {
     supabaseUrl: process.env.SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-    groqApiKey: process.env.GROQ_API_KEY || '',
-    groqModel: process.env.GROQ_MODEL || 'qwen/qwen3.6-27b',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
-    wavespeedApiKey: process.env.WAVESPEED_API_KEY || '',
-    wavespeedModel: process.env.WAVESPEED_MODEL || 'wavespeed-ai/chroma',
+    veniceApiKey: process.env.VENICE_API_KEY || process.env.VENICE_INFERENCE_KEY || '',
+    veniceModel: process.env.VENICE_MODEL || 'kimi-k2-thinking',
+    veniceImageModel: process.env.VENICE_IMAGE_MODEL || 'krea-2-turbo',
+    veniceImageEditModel: process.env.VENICE_IMAGE_EDIT_MODEL || 'qwen-edit',
     elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || '',
     elevenLabsModel: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
     elevenLabsDefaultVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || 'oyOgbRLsneo58YVkU7Di',
@@ -398,6 +398,7 @@ function normalizeChatPayload(payload) {
         temperature: typeof payload.temperature === 'number' ? payload.temperature : 0.8,
         max_tokens: requestedTokens,
         response_format: payload.response_format,
+        venice_parameters: payload.venice_parameters,
     };
 }
 
@@ -423,7 +424,7 @@ async function proxyChat(payload) {
     const upstreamMaxTokens = upstreamPayload.max_tokens || 1024;
     const adjustedMaxTokens = Math.max(upstreamMaxTokens, 2048);
 
-    const targetGroqModel = upstreamPayload.model || env.groqModel;
+    const targetVeniceModel = upstreamPayload.model || env.veniceModel;
     const targetGeminiModel = upstreamPayload.model || env.geminiModel;
 
     const restrictReasoning = (model, msgs) => {
@@ -438,13 +439,6 @@ async function proxyChat(payload) {
         return msgs;
     };
 
-    const groqPayload = {
-        ...upstreamPayload,
-        model: targetGroqModel,
-        max_tokens: adjustedMaxTokens,
-        messages: restrictReasoning(targetGroqModel, upstreamPayload.messages),
-    };
-
     const geminiPayload = {
         ...upstreamPayload,
         model: targetGeminiModel,
@@ -452,22 +446,35 @@ async function proxyChat(payload) {
         messages: restrictReasoning(targetGeminiModel, upstreamPayload.messages),
     };
 
-    const tryGeminiFirst = provider === 'gemini' || (provider === 'auto' && Boolean(env.geminiApiKey));
+    const venicePayload = {
+        ...upstreamPayload,
+        model: targetVeniceModel,
+        max_tokens: adjustedMaxTokens,
+        messages: restrictReasoning(targetVeniceModel, upstreamPayload.messages),
+        venice_parameters: {
+            include_venice_system_prompt: false,
+            strip_thinking_response: true,
+            ...(upstreamPayload.venice_parameters || {}),
+        },
+    };
+
+    const tryVeniceFirst = provider === 'venice' || (provider === 'auto' && Boolean(env.veniceApiKey));
+    const tryGeminiFirst = provider === 'gemini' || (provider === 'auto' && !env.veniceApiKey && Boolean(env.geminiApiKey));
     const attempts = [];
+
+    if (tryVeniceFirst && env.veniceApiKey) {
+        attempts.push({
+            url: 'https://api.venice.ai/api/v1/chat/completions',
+            apiKey: env.veniceApiKey,
+            payload: venicePayload,
+        });
+    }
 
     if (tryGeminiFirst && env.geminiApiKey) {
         attempts.push({
             url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
             apiKey: env.geminiApiKey,
             payload: geminiPayload,
-        });
-    }
-
-    if (env.groqApiKey) {
-        attempts.push({
-            url: 'https://api.groq.com/openai/v1/chat/completions',
-            apiKey: env.groqApiKey,
-            payload: groqPayload,
         });
     }
 
@@ -561,160 +568,211 @@ async function searchCloudinary(tags) {
     return { url: imageUrl || null };
 }
 
-async function generateWaveSpeedImages({ prompt, width, height, count = 1, model, image }) {
-    if (!env.wavespeedApiKey) {
-        throw new Error('Wavespeed is not configured on the backend');
+function normalizeReferenceImages(input) {
+    if (!input) return [];
+    const values = Array.isArray(input) ? input : [input];
+    return values
+        .filter((item) => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+}
+
+function imageBufferToDataUrl(buffer, contentType = 'image/png') {
+    return `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`;
+}
+
+function normalizeGeneratedImageUrl(image, fallbackMimeType = 'image/webp') {
+    const value = typeof image === 'string'
+        ? image.trim()
+        : image && typeof image === 'object'
+            ? String(image.url || image.image || image.b64_json || image.base64 || '').trim()
+            : '';
+
+    if (!value) return null;
+    if (/^https?:\/\//i.test(value)) return value;
+
+    const dataUrlMatch = value.match(/^data:(image\/[a-z0-9.+-]+);base64[:,](.+)$/i);
+    if (dataUrlMatch) {
+        return `data:${dataUrlMatch[1]};base64,${dataUrlMatch[2]}`;
+    }
+
+    if (/^[A-Za-z0-9+/=_-]+$/.test(value)) {
+        return `data:${fallbackMimeType};base64,${value}`;
+    }
+
+    return null;
+}
+
+async function generateVeniceImageEdit({ prompt, images, image, model, aspect_ratio = 'auto' }) {
+    if (!env.veniceApiKey) {
+        throw new Error('Venice is not configured on the backend');
+    }
+    if (!prompt || typeof prompt !== 'string') {
+        throw new Error('prompt is required');
+    }
+
+    const referenceImages = normalizeReferenceImages(images || image);
+    if (referenceImages.length === 0) {
+        throw new Error('reference image is required for character image editing');
+    }
+
+    const editModel = model || env.veniceImageEditModel || 'qwen-edit';
+    const payload = {
+        prompt,
+        image: referenceImages[0],
+        modelId: editModel,
+        aspect_ratio,
+        output_format: 'png',
+        safe_mode: false,
+    };
+
+    console.log('[Generate] Calling Venice image edit API:', editModel);
+    console.log('[Generate] Edit payload:', JSON.stringify({
+        ...payload,
+        prompt: prompt.slice(0, 300),
+        image: referenceImages[0].slice(0, 80),
+    }));
+
+    const response = await fetch('https://api.venice.ai/api/v1/image/edit', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${env.veniceApiKey}`,
+        },
+        body: JSON.stringify(payload),
+    });
+
+    const contentType = response.headers.get('content-type') || 'image/png';
+
+    if (!response.ok) {
+        const text = await response.text();
+        let data;
+        try {
+            data = text ? JSON.parse(text) : null;
+        } catch {
+            data = null;
+        }
+        console.error('[Generate] Venice image edit failed:', data ? JSON.stringify(data) : text.slice(0, 300));
+        throw new Error(data?.error?.message || data?.message || `Venice image edit API error (${response.status})`);
+    }
+
+    if (contentType.includes('application/json')) {
+        const data = await response.json();
+        const imageValue = Array.isArray(data?.images) ? data.images[0] : data?.image || data?.url || data?.data;
+        const url = normalizeGeneratedImageUrl(imageValue, 'image/png');
+        if (!url) {
+            console.error('[Generate] Venice edit returned no image. Full response:', JSON.stringify(data));
+            throw new Error('Venice image edit API returned no image');
+        }
+        return { urls: [url], provider: 'venice', model: data?.request?.modelId || data?.modelId || editModel, id: data?.id || null, mode: 'image-edit' };
+    }
+
+    const buffer = await response.arrayBuffer();
+    const mimeType = contentType.split(';')[0] || 'image/png';
+    const url = imageBufferToDataUrl(buffer, mimeType);
+    console.log('[Generate] Venice edit completed: 1 image');
+    return { urls: [url], provider: 'venice', model: editModel, id: null, mode: 'image-edit' };
+}
+
+async function generateVeniceImages({ prompt, width, height, count = 1, model, image, images, aspect_ratio, resolution }) {
+    if (image || images) {
+        return generateVeniceImageEdit({ prompt, image, images, model, aspect_ratio, resolution });
+    }
+
+    if (!env.veniceApiKey) {
+        throw new Error('Venice is not configured on the backend');
     }
     if (!prompt || typeof prompt !== 'string') {
         throw new Error('prompt is required');
     }
 
     const safeCount = Math.max(1, Math.min(Number(count) || 1, 4));
-    const safeWidth = Math.max(256, Math.min(Number(width) || 1024, 1536));
-    const safeHeight = Math.max(256, Math.min(Number(height) || 1024, 1536));
-    let imageModel = model || env.wavespeedModel || 'wavespeed-ai/chroma';
+    const safeWidth = Math.max(256, Math.min(Number(width) || 1024, 1280));
+    const safeHeight = Math.max(256, Math.min(Number(height) || 1024, 1280));
+    const imageModel = model || env.veniceImageModel || 'krea-2-turbo';
+    const isKreaTurbo = imageModel === 'krea-2-turbo';
 
-    // Map simplified model names to full Wavespeed v3 identifiers
-    const lowerModel = imageModel.toLowerCase();
-    if (lowerModel.includes('flux-2-dev')) {
-        imageModel = image ? 'wavespeed-ai/flux-2-dev/edit' : 'wavespeed-ai/flux-2-dev/text-to-image';
-    } else if (lowerModel.includes('flux-dev') || lowerModel === 'flux') {
-        imageModel = image ? 'wavespeed-ai/flux-dev/edit' : 'wavespeed-ai/flux-dev/text-to-image';
-    } else if (lowerModel === 'chroma' || lowerModel === 'wavespeed-ai/chroma') {
-        imageModel = 'wavespeed-ai/chroma';
+    const payload = isKreaTurbo
+        ? {
+            model: imageModel,
+            prompt,
+            variants: 1,
+            width: safeWidth,
+            height: safeHeight,
+            format: 'webp',
+            return_binary: false,
+            safe_mode: false,
+            hide_watermark: true,
+        }
+        : {
+            model: imageModel,
+            prompt,
+            width: safeWidth,
+            height: safeHeight,
+            variants: safeCount,
+            format: 'webp',
+            return_binary: false,
+            safe_mode: false,
+            hide_watermark: true,
+        };
+
+    console.log('[Generate] Calling Venice image API:', imageModel);
+    console.log('[Generate] Payload:', JSON.stringify({ ...payload, prompt: prompt.slice(0, 300) }));
+
+    const response = await fetch('https://api.venice.ai/api/v1/image/generate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${env.veniceApiKey}`,
+        },
+        body: JSON.stringify(payload),
+    });
+
+    const text = await response.text();
+    let data;
+    try {
+        data = text ? JSON.parse(text) : null;
+    } catch (error) {
+        console.error('[Generate] Venice parse error:', error.message, 'Text:', text.slice(0, 300));
+        throw new Error(`Venice image API returned invalid JSON: ${error.message}`);
     }
 
-    console.log('[Generate] Calling Wavespeed:', imageModel, 'with image:', !!image);
-    console.log('[Generate] Payload:', JSON.stringify({ prompt, width: safeWidth, height: safeHeight, image: image ? image.slice(0, 50) + '...' : null }));
-
-    const urls = [];
-
-    const payload = {
-        prompt,
-        width: safeWidth,
-        height: safeHeight,
-        seed: -1,
-        enable_base64_output: false,
-        enable_sync_mode: false,
-    };
-
-    // For img2img (edit) mode, send the reference image in the 'images' array
-    if (image) {
-        payload.images = [image];
+    if (!response.ok) {
+        console.error('[Generate] Venice image generation failed:', JSON.stringify(data));
+        throw new Error(data?.error?.message || data?.message || `Venice image API error (${response.status})`);
     }
 
-    console.log('[Generate] Sending JSON to WaveSpeed:', JSON.stringify({ ...payload, images: payload.images ? ['EXISTS'] : undefined }));
+    const imageValues = Array.isArray(data?.images)
+        ? data.images
+        : [data?.image, data?.url, data?.data].filter(Boolean);
+    const urls = imageValues
+        .map((image) => normalizeGeneratedImageUrl(image, 'image/webp'))
+        .filter(Boolean);
 
-    for (let index = 0; index < safeCount; index += 1) {
-        const url = `https://api.wavespeed.ai/api/v3/${imageModel}`;
-        console.log('[Generate] POST to:', url);
-        const submitResponse = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${env.wavespeedApiKey}`,
-            },
-            body: JSON.stringify(payload),
+    if (urls.length === 0) {
+        console.error('[Generate] Venice returned no images. Full response:', JSON.stringify(data));
+        throw new Error('Venice image API returned no images');
+    }
+
+    if (isKreaTurbo) {
+        const tinyImage = imageValues.find((image) => {
+            const value = typeof image === 'string'
+                ? image
+                : image && typeof image === 'object'
+                    ? String(image.url || image.image || image.b64_json || image.base64 || '')
+                    : '';
+            const encoded = value.includes('base64,') ? value.split('base64,')[1] : value;
+            return encoded && encoded.length < 20000;
         });
-
-        let submitData;
-        const submitText = await submitResponse.text();
-        try {
-            submitData = JSON.parse(submitText.trim());
-        } catch (e) {
-            // Robust extraction for primitives and complex types
-            const match = submitText.match(/(\{(?:.|\n)*\}|\[(?:.|\n)*\]|true|false|null|\d+(?:\.\d+)?)/i);
-            if (match) {
-                try {
-                    submitData = JSON.parse(match[0]);
-                } catch (innerE) {
-                    console.error('Wavespeed submit parse error:', e.message, 'Text:', submitText);
-                    throw new Error(`Wavespeed API returned invalid JSON structure: ${e.message}`);
-                }
-            } else {
-                console.error('Wavespeed submit parse error:', e.message, 'Text:', submitText);
-                throw new Error(`Wavespeed API returned unusable response: ${submitText.slice(0, 50)}`);
-            }
+        if (tinyImage) {
+            console.error('[Generate] Venice returned a tiny Krea placeholder image. Full response:', JSON.stringify(data).slice(0, 1000));
+            throw new Error('Venice returned a blank placeholder image. Please try a more neutral character image prompt.');
         }
-
-        if (!submitResponse.ok || submitData?.code !== 200) {
-            console.error('[Generate] WaveSpeed submit failed:', JSON.stringify(submitData));
-            throw new Error(submitData?.message || submitData?.error || `WaveSpeed API error (${submitResponse.status})`);
-        }
-        if (!submitData?.data?.urls?.get) {
-            console.error('[Generate] WaveSpeed missing polling URL. Full response:', JSON.stringify(submitData));
-            throw new Error('WaveSpeed did not return a polling URL. Check model name.');
-        }
-
-        const pollUrl = submitData.data.urls.get;
-        let generated = [];
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            const pollResponse = await fetch(pollUrl, {
-                headers: { Authorization: `Bearer ${env.wavespeedApiKey}` },
-            });
-            const pollText = await pollResponse.text();
-            let pollData;
-            try {
-                pollData = JSON.parse(pollText.trim());
-            } catch (e) {
-                const match = pollText.match(/(\{(?:.|\n)*\}|\[(?:.|\n)*\]|true|false|null|\d+(?:\.\d+)?)/i);
-                if (match) {
-                    try {
-                        pollData = JSON.parse(match[0]);
-                    } catch (innerE) {
-                        console.error('Wavespeed poll parse error:', e.message, 'Text:', pollText);
-                        continue;
-                    }
-                } else {
-                    console.error('Wavespeed poll parse error:', e.message, 'Text:', pollText);
-                    continue;
-                }
-            }
-            if (pollData?.data?.status === 'completed') {
-                // Collect outputs from all known field names WaveSpeed may use
-                const rawOutputs =
-                    pollData.data.outputs ??
-                    pollData.data.output ??
-                    pollData.data.result ??
-                    pollData.data.images ??
-                    pollData.data.url ??
-                    null;
-                const rawUrls = extractImageUrls(rawOutputs);
-                console.log('[Generate] Completed. Raw URLs found:', rawUrls.length, rawUrls);
-
-
-
-                // The raw URLs are temporary CloudFront links that expire.
-                // Upload them to Cloudinary to make them permanent.
-                generated = [];
-                for (const rawUrl of rawUrls) {
-                    try {
-                        const uploadResult = await cloudinary.uploader.upload(rawUrl, {
-                            folder: 'luvora_generated',
-                            resource_type: 'image',
-                        });
-                        generated.push(uploadResult.secure_url);
-                        console.log('[Generate] Uploaded to Cloudinary:', uploadResult.secure_url);
-                    } catch (uploadErr) {
-                        console.error('[Generate] Cloudinary upload failed, using temp URL:', uploadErr.message);
-                        generated.push(rawUrl);
-                    }
-                }
-                break;
-            }
-            if (pollData?.data?.status === 'processing' || pollData?.data?.status === 'pending') {
-                console.log(`[Generate] Poll attempt ${attempt + 1}: status=${pollData.data.status}`);
-            }
-            if (pollData?.data?.status === 'failed') {
-                throw new Error('Image generation failed upstream');
-            }
-        }
-
-        urls.push(...generated);
     }
 
-    return { urls: Array.from(new Set(urls)).filter(Boolean) };
+    console.log('[Generate] Venice completed:', urls.length, 'image(s)');
+    return { urls, provider: 'venice', model: data?.request?.model || data?.model || imageModel, id: data?.id || null };
 }
 
 function extractImageUrls(input) {
@@ -1432,7 +1490,7 @@ const server = createServer(async (req, res) => {
             if (!(await handleCoinDeduction(user.id, 10, res))) return;
 
             const payload = await readJson(req);
-            const data = await generateWaveSpeedImages(payload);
+            const data = await generateVeniceImages(payload);
             sendJson(res, 200, data);
             return;
         }

@@ -7,7 +7,7 @@ import { backendJson, hasBackend } from './backendApi';
 import { supabase } from './supabaseClient';
 import { resolveCharacterMedia, FALLBACK_MEDIA_IMAGE } from './mediaUtils';
 
-const IMG2IMG_MODEL = 'flux-2-dev';
+const IMG2IMG_MODEL = 'qwen-edit';
 const COST_PER_GEN = 15;
 
 const GENERATED_IMAGES_STORAGE_KEY = 'dreamai_generated_images';
@@ -61,7 +61,7 @@ async function syncToUser(userId, entries) {
 
 async function imageUrlToBase64(url) {
     // If it's already a public URL (cloudinary, unsplash, etc.), send it directly
-    // WaveSpeed API accepts image URLs natively
+    // Keep public URLs as-is and convert local/blob images when needed.
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
         return url;
     }
@@ -124,7 +124,7 @@ function GeneratingOverlay() {
                     <span className="animate-bounce inline-block" style={{ animationDelay: '0.2s' }}>.</span>
                 </span>
             </p>
-            <p className="text-gray-500 text-xs font-medium">Using Flux-2-dev img2img · Usually 20–40s</p>
+            <p className="text-gray-500 text-xs font-medium">Using Venice Qwen edit - usually 20-40s</p>
         </div>
     );
 }
@@ -172,11 +172,12 @@ export default function CharacterImageGenModal({
 
     const buildFinalPrompt = useCallback(() => {
         const parts = [];
-        if (selectedStyle) parts.push(`${selectedStyle} style`);
-        parts.push(`an image of ${character?.name || 'the character'}`);
-        if (prompt.trim()) parts.push(prompt.trim());
-        if (selectedScene) parts.push(`in a ${selectedScene} setting`);
-        parts.push('highest quality, highly detailed, masterpiece, 8k resolution');
+        parts.push(`Edit the provided reference image of ${character?.name || 'the character'}.`);
+        parts.push('Keep the same face, identity, age, body type, hair, and recognizable character features.');
+        if (selectedStyle) parts.push(`Render in ${selectedStyle} style.`);
+        if (prompt.trim()) parts.push(`User request: ${prompt.trim()}.`);
+        if (selectedScene) parts.push(`Place the character in a ${selectedScene} setting.`);
+        parts.push('High quality, highly detailed, polished composition.');
         return parts.join(', ');
     }, [prompt, selectedStyle, selectedScene, character]);
 
@@ -223,11 +224,10 @@ export default function CharacterImageGenModal({
                 sessionInfo,
                 body: {
                     prompt: finalPrompt,
-                    width: 768,
-                    height: 1024,
                     count: 1,
                     model: IMG2IMG_MODEL,
                     image: refBase64,
+                    aspect_ratio: 'auto',
                 },
             });
 
@@ -326,7 +326,7 @@ export default function CharacterImageGenModal({
                             </div>
                             <div>
                                 <h2 className="text-sm font-black text-white tracking-tight">Reimagine {character.name}</h2>
-                                <p className="text-[10px] text-gray-500 font-medium">Flux-2-dev img2img · Character reference</p>
+                                <p className="text-[10px] text-gray-500 font-medium">Qwen image edit · Character reference</p>
                             </div>
                         </div>
                         <button onClick={onClose} className="w-8 h-8 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-gray-400 hover:text-white flex items-center justify-center transition-all active:scale-90">

@@ -9,7 +9,7 @@ import { supabase } from './supabaseClient';
 import { backendJson, hasBackend } from './backendApi';
 
 const COST_PER_IMAGE = 10;
-const IMAGE_MODEL = 'wavespeed-ai/chroma';
+const IMAGE_MODEL = 'krea-2-turbo';
 
 const OPTIONS = {
     sizes: [
