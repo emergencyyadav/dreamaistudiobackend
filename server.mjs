@@ -2,6 +2,17 @@ import { createServer } from 'http';
 import crypto from 'crypto';
 import dns from 'dns';
 
+// Catch fatal startup errors so Railway logs show them
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught Exception:', err);
+    process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[FATAL] Unhandled Rejection:', reason);
+    process.exit(1);
+});
+console.log('[Startup] server.mjs loading... NODE_ENV=' + process.env.NODE_ENV + ' PORT=' + process.env.PORT);
+
 // Fix for Node.js 18+ undici fetch IPv6 timeout issues on Windows
 dns.setDefaultResultOrder('ipv4first');
 
@@ -1711,4 +1722,9 @@ const server = createServer(async (req, res) => {
 
 server.listen(env.port, '0.0.0.0', () => {
     console.log(`Backend listening on port ${env.port}`);
+});
+
+server.on('error', (err) => {
+    console.error('[FATAL] Server failed to bind:', err);
+    process.exit(1);
 });

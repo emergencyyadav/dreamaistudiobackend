@@ -22,7 +22,6 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=5000
 
 # Copy root package files & install production dependencies only
 COPY package*.json ./
@@ -34,6 +33,5 @@ COPY --from=builder /app/db.mjs ./db.mjs
 COPY --from=builder /app/generate_xpub.mjs ./generate_xpub.mjs
 COPY --from=builder /app/my-app/dist ./my-app/dist
 
-EXPOSE 5000
-
 CMD ["node", "server.mjs"]
+
