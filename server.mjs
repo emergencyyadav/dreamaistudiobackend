@@ -72,6 +72,8 @@ const env = {
     veniceModel: process.env.VENICE_MODEL || 'kimi-k2-thinking',
     veniceImageModel: process.env.VENICE_IMAGE_MODEL || 'krea-2-turbo',
     veniceImageEditModel: process.env.VENICE_IMAGE_EDIT_MODEL || 'qwen-edit',
+    groqApiKey: process.env.GROQ_API_KEY || '',
+    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
     elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || '',
     elevenLabsModel: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
     elevenLabsDefaultVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || 'oyOgbRLsneo58YVkU7Di',
@@ -458,28 +460,72 @@ async function proxyChat(payload) {
         },
     };
 
-    const tryVeniceFirst = provider === 'venice' || (provider === 'auto' && Boolean(env.veniceApiKey));
-    const tryGeminiFirst = provider === 'gemini' || (provider === 'auto' && !env.veniceApiKey && Boolean(env.geminiApiKey));
+    const targetGroqModel = upstreamPayload.model && !upstreamPayload.model.includes('gemini') && !upstreamPayload.model.includes('kimi') && !upstreamPayload.model.includes('krea') ? upstreamPayload.model : env.groqModel;
+    const groqPayload = {
+        ...upstreamPayload,
+        model: targetGroqModel,
+        max_tokens: adjustedMaxTokens,
+        messages: restrictReasoning(targetGroqModel, upstreamPayload.messages),
+    };
+
     const attempts = [];
 
-    if (tryVeniceFirst && env.veniceApiKey) {
-        attempts.push({
-            url: 'https://api.venice.ai/api/v1/chat/completions',
-            apiKey: env.veniceApiKey,
-            payload: venicePayload,
-        });
+    // Prioritize selected provider or auto-fallback order
+    if (provider === 'venice' || provider === 'auto') {
+        if (env.veniceApiKey) {
+            attempts.push({
+                url: 'https://api.venice.ai/api/v1/chat/completions',
+                apiKey: env.veniceApiKey,
+                payload: venicePayload,
+            });
+        }
     }
 
-    if (tryGeminiFirst && env.geminiApiKey) {
-        attempts.push({
-            url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-            apiKey: env.geminiApiKey,
-            payload: geminiPayload,
-        });
+    if (provider === 'gemini' || provider === 'auto') {
+        if (env.geminiApiKey) {
+            attempts.push({
+                url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+                apiKey: env.geminiApiKey,
+                payload: geminiPayload,
+            });
+        }
+    }
+
+    if (provider === 'groq' || provider === 'auto') {
+        if (env.groqApiKey) {
+            attempts.push({
+                url: 'https://api.groq.com/openai/v1/chat/completions',
+                apiKey: env.groqApiKey,
+                payload: groqPayload,
+            });
+        }
+    }
+
+    // Safety fallback: if the requested provider had no API key, check any other available configured provider
+    if (attempts.length === 0) {
+        if (env.veniceApiKey) {
+            attempts.push({
+                url: 'https://api.venice.ai/api/v1/chat/completions',
+                apiKey: env.veniceApiKey,
+                payload: venicePayload,
+            });
+        } else if (env.geminiApiKey) {
+            attempts.push({
+                url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+                apiKey: env.geminiApiKey,
+                payload: geminiPayload,
+            });
+        } else if (env.groqApiKey) {
+            attempts.push({
+                url: 'https://api.groq.com/openai/v1/chat/completions',
+                apiKey: env.groqApiKey,
+                payload: groqPayload,
+            });
+        }
     }
 
     if (attempts.length === 0) {
-        throw new Error('No AI provider is configured on the backend');
+        throw new Error('No AI provider is configured on the backend. Please add VENICE_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY to your environment variables.');
     }
 
     let lastFailure = null;
