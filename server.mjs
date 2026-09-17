@@ -1728,3 +1728,22 @@ server.on('error', (err) => {
     console.error('[FATAL] Server failed to bind:', err);
     process.exit(1);
 });
+
+// Also bind secondary listeners on common Railway target ports (8080, 3000, 80, 5000)
+// so that regardless of Railway's target port setting, incoming requests are handled
+const additionalPorts = [8080, 5000, 3000, 80].filter((p) => p !== env.port);
+for (const extraPort of additionalPorts) {
+    try {
+        const extraServer = createServer((req, res) => {
+            server.emit('request', req, res);
+        });
+        extraServer.on('error', (err) => {
+            console.log(`[Info] Optional port ${extraPort} not bound: ${err.message}`);
+        });
+        extraServer.listen(extraPort, '0.0.0.0', () => {
+            console.log(`Backend also listening on port ${extraPort}`);
+        });
+    } catch (e) {
+        console.log(`[Info] Port ${extraPort} setup failed: ${e.message}`);
+    }
+}
