@@ -33,5 +33,6 @@ COPY --from=builder /app/db.mjs ./db.mjs
 COPY --from=builder /app/generate_xpub.mjs ./generate_xpub.mjs
 COPY --from=builder /app/my-app/dist ./my-app/dist
 
-CMD ["node", "server.mjs"]
+EXPOSE 5000
 
+CMD ["node", "server.mjs"]
