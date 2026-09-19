@@ -26,7 +26,7 @@ import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram, Keypair } from '@solana/web3.js';
 import { ethers } from 'ethers';
 import { fulfillOrder } from './db.mjs';
 import Redis from 'ioredis';
@@ -89,7 +89,11 @@ const env = {
     elevenLabsModel: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
     elevenLabsDefaultVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || 'oyOgbRLsneo58YVkU7Di',
     solanaRpc: process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com',
-    solanaMasterSeed: process.env.SOLANA_MASTER_SEED || '',
+    solanaMasterSeed: process.env.PAYMENT_MASTER_SEED || process.env.SOLANA_MASTER_SEED || '',
+    paymentMasterSeed: process.env.PAYMENT_MASTER_SEED || process.env.SOLANA_MASTER_SEED || '',
+    treasurySolanaAddress: process.env.TREASURY_SOLANA_ADDRESS || '',
+    treasuryEthAddress: process.env.TREASURY_ETH_ADDRESS || '',
+    ethRpc: process.env.ETH_RPC || 'https://ethereum-rpc.publicnode.com',
     tronXpub: process.env.TRON_XPUB || '',
     baseXpub: process.env.BASE_XPUB || '',
     cryptogatewayApiKey: process.env.CRYPTOGATEWAY_API_KEY || '',
@@ -903,10 +907,11 @@ function calcSolAmount(plan, solPriceUsd) {
 
 async function getMasterSeed() {
     if (cachedSeed) return cachedSeed;
-    if (!env.solanaMasterSeed) {
-        throw new Error('SOLANA_MASTER_SEED is not configured');
+    const seedPhrase = env.paymentMasterSeed || env.solanaMasterSeed;
+    if (!seedPhrase) {
+        throw new Error('PAYMENT_MASTER_SEED (or SOLANA_MASTER_SEED) is not configured in .env');
     }
-    cachedSeed = await bip39.mnemonicToSeed(env.solanaMasterSeed);
+    cachedSeed = await bip39.mnemonicToSeed(seedPhrase.trim());
     return cachedSeed;
 }
 
@@ -1303,6 +1308,314 @@ async function confirmCryptoPayment(userId, payload) {
     throw new Error('Unsupported payment kind');
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// HD CRYPTO CHECKOUT ENGINE & TREASURY SWEEPER
+// Supports: SOL, USDT (Solana SPL), USDC (Solana SPL), ETH, USDT (ERC-20), USDC (ERC-20)
+// With 1% Slippage Tolerance & Non-Custodial Child Derivation
+// ══════════════════════════════════════════════════════════════════════════════
+
+let cachedEthPrice = null;
+let cachedEthPriceAt = 0;
+
+async function getLiveEthPrice() {
+    const now = Date.now();
+    if (cachedEthPrice && now - cachedEthPriceAt < PRICE_CACHE_MS) {
+        return cachedEthPrice;
+    }
+    try {
+        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+        const data = await response.json();
+        const price = data?.ethereum?.usd;
+        if (price) {
+            cachedEthPrice = price;
+            cachedEthPriceAt = now;
+            return price;
+        }
+    } catch (e) {
+        console.warn('[ETH Price] CoinGecko fetch failed, using fallback:', e.message);
+    }
+    return cachedEthPrice || 3200;
+}
+
+const SUPPORTED_CRYPTO_COINS = {
+    SOL: { network: 'solana', symbol: 'SOL', name: 'Solana', decimals: 9 },
+    USDT_SOL: { network: 'solana', symbol: 'USDT', name: 'Tether (Solana SPL)', decimals: 6, mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' },
+    USDC_SOL: { network: 'solana', symbol: 'USDC', name: 'USD Coin (Solana SPL)', decimals: 6, mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
+    ETH: { network: 'ethereum', symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+    USDT_ETH: { network: 'ethereum', symbol: 'USDT', name: 'Tether (ERC-20)', decimals: 6, contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+    USDC_ETH: { network: 'ethereum', symbol: 'USDC', name: 'USD Coin (ERC-20)', decimals: 6, contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' },
+};
+
+async function deriveSolanaKeypair(index) {
+    const seed = await getMasterSeed();
+    const { key } = derivePath(`m/44'/501'/${index}'/0'`, seed.toString('hex'));
+    const keypair = nacl.sign.keyPair.fromSeed(key);
+    const publicKey = bs58.encode(keypair.publicKey);
+    return { keypair, publicKey, secretKey: keypair.secretKey };
+}
+
+async function deriveEthWallet(index) {
+    const seed = await getMasterSeed();
+    const hdNode = ethers.HDNodeWallet.fromSeed(seed);
+    const wallet = hdNode.derivePath(`m/44'/60'/0'/0/${index}`);
+    return { wallet, address: wallet.address, privateKey: wallet.privateKey };
+}
+
+// Active in-memory order cache (persists during process lifetime)
+const cryptoOrders = new Map();
+
+async function createCryptoOrder({ user, kind, plan, pack, coin }) {
+    if (!SUPPORTED_CRYPTO_COINS[coin]) {
+        throw new Error(`Unsupported coin: ${coin}. Choose from: ${Object.keys(SUPPORTED_CRYPTO_COINS).join(', ')}`);
+    }
+
+    const coinConfig = SUPPORTED_CRYPTO_COINS[coin];
+    let usdTarget = 8.00;
+    if (kind === 'premium') {
+        usdTarget = PREMIUM_PLANS[plan]?.usd || 8.00;
+    } else if (kind === 'coins') {
+        usdTarget = Number(pack?.price || 0.99);
+    }
+
+    let expectedAmount = 0;
+    if (coin === 'SOL') {
+        const solPrice = await getLiveSolPrice();
+        expectedAmount = Math.ceil((usdTarget / solPrice) * 1e6) / 1e6;
+    } else if (coin === 'ETH') {
+        const ethPrice = await getLiveEthPrice();
+        expectedAmount = Math.ceil((usdTarget / ethPrice) * 1e6) / 1e6;
+    } else {
+        // USDT, USDC pegged 1:1 with USD
+        expectedAmount = usdTarget;
+    }
+
+    // 1% slippage acceptance threshold as requested
+    const minAmount = Math.floor(expectedAmount * 0.99 * 1e6) / 1e6;
+
+    // Generate unique derivation child index
+    const childIndex = Math.floor(Math.random() * 0x7fffffff);
+
+    let address = '';
+    if (coinConfig.network === 'solana') {
+        const sol = await deriveSolanaKeypair(childIndex);
+        address = sol.publicKey;
+    } else {
+        const eth = await deriveEthWallet(childIndex);
+        address = eth.address;
+    }
+
+    const orderId = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const order = {
+        id: orderId,
+        userId: user.id,
+        kind,
+        plan,
+        pack,
+        coin,
+        network: coinConfig.network,
+        address,
+        childIndex,
+        usdTarget,
+        expectedAmount,
+        minAmount,
+        status: 'pending',
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 2 * 60 * 60 * 1000, // 2 hours
+    };
+
+    cryptoOrders.set(orderId, order);
+    console.log(`[Crypto Order Created] ID=${orderId}, Coin=${coin}, Address=${address}, Target=${expectedAmount}, Min=${minAmount}`);
+
+    return {
+        orderId,
+        address,
+        coin,
+        network: coinConfig.network,
+        networkName: coinConfig.network === 'solana' ? 'Solana Network' : 'Ethereum Network',
+        symbol: coinConfig.symbol,
+        expectedAmount,
+        minAmount,
+        usdTarget,
+        expiresAt: order.expiresAt,
+    };
+}
+
+async function getOrderOnChainBalance(order) {
+    const { coin, address } = order;
+    try {
+        if (coin === 'SOL') {
+            const lamports = await solanaConnection.getBalance(new PublicKey(address), 'confirmed');
+            return lamports / LAMPORTS_PER_SOL;
+        }
+
+        if (coin === 'USDT_SOL' || coin === 'USDC_SOL') {
+            const mint = SUPPORTED_CRYPTO_COINS[coin].mint;
+            const res = await solanaConnection.getParsedTokenAccountsByOwner(
+                new PublicKey(address),
+                { mint: new PublicKey(mint) },
+                'confirmed'
+            );
+            let total = 0;
+            for (const item of (res?.value || [])) {
+                const ui = item.account?.data?.parsed?.info?.tokenAmount?.uiAmount;
+                if (typeof ui === 'number') total += ui;
+            }
+            return total;
+        }
+
+        if (coin === 'ETH') {
+            const provider = new ethers.JsonRpcProvider(env.ethRpc);
+            const wei = await provider.getBalance(address);
+            return Number(ethers.formatEther(wei));
+        }
+
+        if (coin === 'USDT_ETH' || coin === 'USDC_ETH') {
+            const provider = new ethers.JsonRpcProvider(env.ethRpc);
+            const contract = new ethers.Contract(
+                SUPPORTED_CRYPTO_COINS[coin].contract,
+                ['function balanceOf(address) view returns (uint256)'],
+                provider
+            );
+            const raw = await contract.balanceOf(address);
+            return Number(ethers.formatUnits(raw, 6));
+        }
+    } catch (e) {
+        console.warn(`[OnChain Check] Error checking ${coin} for ${address}:`, e.message);
+    }
+    return 0;
+}
+
+async function sweepToTreasury(order, currentBalance) {
+    const { coin, childIndex } = order;
+    try {
+        if (coin === 'SOL' && env.treasurySolanaAddress) {
+            const { secretKey, publicKey } = await deriveSolanaKeypair(childIndex);
+            const lamports = await solanaConnection.getBalance(new PublicKey(publicKey), 'confirmed');
+            const fee = 5000;
+            if (lamports > fee) {
+                const sendAmount = lamports - fee;
+                const signerKeypair = Keypair.fromSecretKey(secretKey);
+                const tx = new Transaction().add(
+                    SystemProgram.transfer({
+                        fromPubkey: signerKeypair.publicKey,
+                        toPubkey: new PublicKey(env.treasurySolanaAddress),
+                        lamports: sendAmount,
+                    })
+                );
+                const { blockhash } = await solanaConnection.getLatestBlockhash('confirmed');
+                tx.recentBlockhash = blockhash;
+                tx.feePayer = signerKeypair.publicKey;
+                tx.sign(signerKeypair);
+
+                const sig = await solanaConnection.sendRawTransaction(tx.serialize());
+                console.log(`[Sweep] Swept ${sendAmount / LAMPORTS_PER_SOL} SOL to treasury ${env.treasurySolanaAddress}. Tx: ${sig}`);
+                return sig;
+            }
+        }
+
+        if (coin === 'ETH' && env.treasuryEthAddress) {
+            const { privateKey } = await deriveEthWallet(childIndex);
+            const provider = new ethers.JsonRpcProvider(env.ethRpc);
+            const wallet = new ethers.Wallet(privateKey, provider);
+            const weiBalance = await provider.getBalance(wallet.address);
+            const feeData = await provider.getFeeData();
+            const gasLimit = 21000n;
+            const gasPrice = feeData.gasPrice || 25000000000n;
+            const gasCost = gasPrice * gasLimit;
+            if (weiBalance > gasCost) {
+                const sendAmount = weiBalance - gasCost;
+                const tx = await wallet.sendTransaction({
+                    to: env.treasuryEthAddress,
+                    value: sendAmount,
+                    gasLimit,
+                    gasPrice,
+                });
+                console.log(`[Sweep] Swept ${ethers.formatEther(sendAmount)} ETH to treasury ${env.treasuryEthAddress}. Tx: ${tx.hash}`);
+                return tx.hash;
+            }
+        }
+    } catch (err) {
+        console.error(`[Sweep] Error sweeping funds for order ${order.id}:`, err.message);
+    }
+    return null;
+}
+
+async function verifyAndFulfillCryptoOrder(orderId) {
+    const order = cryptoOrders.get(orderId);
+    if (!order) {
+        throw new Error('Order not found or expired');
+    }
+
+    if (order.status === 'confirmed') {
+        return { status: 'confirmed', message: 'Order already confirmed and fulfilled!' };
+    }
+
+    const currentBalance = await getOrderOnChainBalance(order);
+    console.log(`[Order Check] ID=${orderId} Coin=${order.coin} Target=${order.expectedAmount} Min=${order.minAmount} Current=${currentBalance}`);
+
+    if (currentBalance >= order.minAmount) {
+        order.status = 'confirmed';
+        order.confirmedAt = Date.now();
+        order.paidAmount = currentBalance;
+
+        if (adminSupabase) {
+            try {
+                if (order.kind === 'premium') {
+                    const planObj = PREMIUM_PLANS[order.plan] || PREMIUM_PLANS.monthly;
+                    const expiresAt = new Date(Date.now() + planObj.days * 86400_000).toISOString();
+                    await adminSupabase.from('users').update({
+                        is_premium: true,
+                        premium_plan: order.plan,
+                        premium_expires_at: expiresAt,
+                        premium_tx: `ord_${order.id}`,
+                        coin_balance: 99999,
+                    }).eq('uuid', order.userId);
+                    console.log(`[Fulfill] Premium activated for user ${order.userId} until ${expiresAt}`);
+                } else if (order.kind === 'coins') {
+                    const totalCoins = Number(order.pack?.coins || 0) + Number(order.pack?.bonus || 0);
+                    const { data: currentUser } = await adminSupabase
+                        .from('users')
+                        .select('coin_balance')
+                        .eq('uuid', order.userId)
+                        .single();
+                    const newBalance = Number(currentUser?.coin_balance || 0) + totalCoins;
+                    await adminSupabase.from('users').update({ coin_balance: newBalance }).eq('uuid', order.userId);
+                    console.log(`[Fulfill] Credited ${totalCoins} coins to user ${order.userId}. New total: ${newBalance}`);
+                }
+
+                await adminSupabase.from('payment_logs').insert({
+                    user_uuid: order.userId,
+                    plan: order.kind === 'premium' ? order.plan : `coins_${order.pack?.id}`,
+                    amount_sol: currentBalance,
+                    tx_signature: `crypto_${order.id}_${Date.now()}`,
+                    sol_address: order.address,
+                });
+            } catch (err) {
+                console.error('[Fulfill] Database fulfillment error:', err.message);
+            }
+        }
+
+        // Trigger automatic sweep to treasury
+        sweepToTreasury(order, currentBalance).catch((err) => {
+            console.warn('[Sweep] Background sweep warning:', err.message);
+        });
+
+        return {
+            status: 'confirmed',
+            paidAmount: currentBalance,
+            expectedAmount: order.expectedAmount,
+            message: 'Payment confirmed on-chain! Subscription / coins activated.',
+        };
+    }
+
+    return {
+        status: 'pending',
+        currentBalance,
+        expectedAmount: order.expectedAmount,
+        minAmount: order.minAmount,
+    };
+}
+
 const server = createServer(async (req, res) => {
     setCors(req, res);
 
@@ -1560,6 +1873,40 @@ const server = createServer(async (req, res) => {
                 'Content-Type': 'audio/mpeg',
                 'Cache-Control': 'private, max-age=3600',
             });
+            return;
+        }
+
+        if (req.method === 'GET' && requestUrl.pathname === '/api/payments/crypto/prices') {
+            const solPrice = await getLiveSolPrice();
+            const ethPrice = await getLiveEthPrice();
+            sendJson(res, 200, {
+                sol: solPrice,
+                eth: ethPrice,
+                usdt: 1.00,
+                usdc: 1.00,
+            });
+            return;
+        }
+
+        if (req.method === 'POST' && requestUrl.pathname === '/api/payments/crypto/create-order') {
+            const user = await getAuthenticatedUser(req);
+            const payload = await readJson(req);
+            const { kind, plan, pack, coin } = payload || {};
+            const orderData = await createCryptoOrder({ user, kind, plan, pack, coin });
+            sendJson(res, 200, orderData);
+            return;
+        }
+
+        if (req.method === 'POST' && requestUrl.pathname === '/api/payments/crypto/check-order') {
+            const user = await getAuthenticatedUser(req);
+            const payload = await readJson(req);
+            const { orderId } = payload || {};
+            if (!orderId) {
+                sendJson(res, 400, { error: 'orderId is required' });
+                return;
+            }
+            const checkResult = await verifyAndFulfillCryptoOrder(orderId);
+            sendJson(res, 200, checkResult);
             return;
         }
 

@@ -129,11 +129,18 @@ export default function ProfileView({ onLogout, refreshKey = 0, onReadTerms, onF
                     .select('is_premium, username')
                     .eq('uuid', session.user.id)
                     .single();
+                const isExternalAvatar = metadata.avatar_url && (
+                    metadata.avatar_url.includes('googleusercontent.com') ||
+                    metadata.avatar_url.includes('discordapp.com') ||
+                    metadata.avatar_url.includes('twimg.com')
+                );
+                const userAvatar = metadata.custom_avatar_url || (!isExternalAvatar ? metadata.avatar_url : null);
+
                 setUser({
                     id: session.user.id,
                     email: session.user.email,
                     username: dbUser?.username || 'Anonymous',
-                    avatarUrl: metadata.avatar_url || null,
+                    avatarUrl: userAvatar || null,
                     createdAt: session.user.created_at,
                     usernameUpdates: metadata.username_updates || [],
                     language: metadata.language || 'English',
@@ -201,7 +208,12 @@ export default function ProfileView({ onLogout, refreshKey = 0, onReadTerms, onF
         const reader = new FileReader();
         reader.onloadend = async () => {
             try {
-                const { error } = await supabase.auth.updateUser({ data: { avatar_url: reader.result } });
+                const { error } = await supabase.auth.updateUser({
+                    data: {
+                        avatar_url: reader.result,
+                        custom_avatar_url: reader.result
+                    }
+                });
                 if (error) throw error;
                 setUser(prev => ({ ...prev, avatarUrl: reader.result }));
                 setSuccessMessage('Profile picture updated!');

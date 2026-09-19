@@ -1141,7 +1141,8 @@ IMPORTANT RULES:
                     username: user,
                     uuid: sessionInfo?.user?.id,
                     is_public: true,
-                    images: bestImage
+                    images: bestImage,
+                    gallery: [{ url: bestImage, type: 'image', isBase: true, addedAt: new Date().toISOString() }]
                 }
             ]).select();
 
@@ -2051,6 +2052,7 @@ IMPORTANT RULES:
                                         uuid: sessionInfo?.user?.id,
                                         is_public: true,
                                         images: bestImage,
+                                        gallery: [{ url: bestImage, type: 'image', isBase: true, addedAt: new Date().toISOString() }],
                                         greeting: startingScene, // New column required for the initial scenario
                                         voice: finalSelectedVoiceName,
                                         voice_id: finalSelectedVoiceId || null

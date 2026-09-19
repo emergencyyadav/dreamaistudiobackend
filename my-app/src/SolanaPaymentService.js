@@ -229,4 +229,28 @@ export function pollForPayment(userAddress, requiredAmount, {
     return () => { cancelled = true; };
 }
 
+export async function createCryptoPaymentOrder({ kind, plan, pack, coin, sessionInfo }) {
+    return backendJson('/api/payments/crypto/create-order', {
+        method: 'POST',
+        sessionInfo,
+        body: { kind, plan, pack, coin },
+    });
+}
+
+export async function checkCryptoPaymentOrder({ orderId, sessionInfo }) {
+    return backendJson('/api/payments/crypto/check-order', {
+        method: 'POST',
+        sessionInfo,
+        body: { orderId },
+    });
+}
+
+export async function getCryptoPrices() {
+    try {
+        return await backendJson('/api/payments/crypto/prices');
+    } catch (e) {
+        return { sol: 130, eth: 3200, usdt: 1.00, usdc: 1.00 };
+    }
+}
+
 export { SOLANA_NETWORK, SOLANA_RPC };

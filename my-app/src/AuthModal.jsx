@@ -5,7 +5,8 @@ import { supabase } from './supabaseClient';
 const OAUTH_PROVIDERS = {
     google: {
         provider: 'google',
-        label: 'Continue with Google'
+        label: 'Continue with Google',
+        scopes: 'openid email'
     },
     x: {
         provider: 'x',
@@ -34,12 +35,18 @@ export default function AuthModal({ isOpen, onClose, customMessage, bannedError 
         setError('');
 
         try {
+            const options = {
+                redirectTo: `${window.location.origin}/`,
+                queryParams: { prompt: 'select_account' }
+            };
+
+            if (providerConfig.scopes) {
+                options.scopes = providerConfig.scopes;
+            }
+
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: providerConfig.provider,
-                options: {
-                    redirectTo: `${window.location.origin}/`,
-                    queryParams: { prompt: 'select_account' }
-                }
+                options
             });
 
             if (error) throw error;
