@@ -2,8 +2,8 @@ const trimTrailingSlash = (value = '') => value.replace(/\/+$/, '');
 
 export const BACKEND_URL = (() => {
     let url = import.meta.env.VITE_BACKEND_URL || '';
-    if (!url || url.includes('eef7')) {
-        url = 'https://dreamaistudiobackend-production-4174.up.railway.app';
+    if (!url || url.includes('eef7') || url.includes('railway.app')) {
+        url = 'https://dreamaistudiobackend.onrender.com';
     }
     url = trimTrailingSlash(url);
     if (url && !url.startsWith('http')) {
