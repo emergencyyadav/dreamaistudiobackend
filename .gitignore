@@ -19,3 +19,4 @@ user_tokens.json
 get_models.js
 test.mjs
 test_local_webhook.mjs
+image-proxy-server/
