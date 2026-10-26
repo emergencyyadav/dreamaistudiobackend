@@ -91,7 +91,24 @@ function Toggle({ label, icon: Icon, color, value, onChange }) {
     );
 }
 
-export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreateGroup, character, onBackToList, onSelectCharacter, user, sessionInfo, onRequireLogin, coinBalance, onBurnCoin, onRequireUpgrade, onGuard }) {
+export default function ChatView({
+    onLog,
+    onNavigateToExplore,
+    onNavigateToCreateGroup,
+    character,
+    onBackToList,
+    onSelectCharacter,
+    user,
+    sessionInfo,
+    onRequireLogin,
+    coinBalance,
+    dailyFreeRemaining = 10,
+    onBurnCoin,
+    onBurnChatCoin,
+    onRequireUpgrade,
+    onRequireCoins,
+    onGuard
+}) {
     // ── state ──────────────────────────────────────────────────────────────
     const [chatSessions, setChatSessions] = useState([]);
     const [activeChatId, setActiveChatId] = useState(null);
@@ -122,6 +139,7 @@ export default function ChatView({ onLog, onNavigateToExplore, onNavigateToCreat
     const [activeMsgMenu, setActiveMsgMenu] = useState(null);
     const [isFullScreen, setIsFullScreen] = useState(false);
     const [showPremiumModal, setShowPremiumModal] = useState(false);
+    const [showOutOfTokensModal, setShowOutOfTokensModal] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [isImageMode, setIsImageMode] = useState(false);
     const [isGeneratingImage, setIsGeneratingImage] = useState(false);
@@ -1162,11 +1180,17 @@ ${newDialogueText}`;
             return;
         }
 
-        // Deduct Bolt Coin
-        const ok = await onBurnCoin(1);
-        if (!ok) {
-            setShowPremiumModal(true);
-            if (onRequireUpgrade) onRequireUpgrade();
+        // Deduct message: 10 daily free messages first, then Bolt Tokens (1 token = 1 message)
+        let burnResult;
+        if (onBurnChatCoin) {
+            burnResult = await onBurnChatCoin();
+        } else {
+            const ok = await onBurnCoin(1);
+            burnResult = { ok };
+        }
+        if (!burnResult?.ok) {
+            // Out of daily free messages AND Bolt tokens. Never force subscription to chat!
+            setShowOutOfTokensModal(true);
             return;
         }
 
@@ -2271,22 +2295,40 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
             >
                 <div className="max-w-2xl mx-auto w-full px-4 space-y-5 pt-[76px]">
 
-                    {/* Boltcoins / Upgrade Bar */}
+                    {/* Bolt Tokens & Daily Free Messages Limit Bar */}
                     {coinBalance !== Infinity && (
-                        <div className="flex items-center justify-between bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl p-2.5 px-4 shadow-xl mb-6">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-7 h-7 bg-pink-500/20 rounded-full flex items-center justify-center text-pink-400">
-                                    <Zap size={14} fill="currentColor" />
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/60 backdrop-blur-md border border-purple-500/20 rounded-2xl p-3 px-4 shadow-xl mb-6">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-purple-500/20 rounded-xl flex items-center justify-center text-purple-400 border border-purple-500/30 shrink-0">
+                                    <Zap size={16} fill="currentColor" />
                                 </div>
-                                <span className="text-pink-100 font-bold text-sm tracking-tight">
-                                    {coinBalance} Boltcoins left
-                                </span>
+                                <div className="flex flex-col">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-white font-bold text-sm tracking-tight">
+                                            {dailyFreeRemaining > 0
+                                                ? `${dailyFreeRemaining}/10 Free Messages left today`
+                                                : '10/10 Free Messages used today'}
+                                        </span>
+                                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                            Daily Limit
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-0.5">
+                                        <span>Balance:</span>
+                                        <span className="text-purple-300 font-semibold flex items-center gap-1">
+                                            <Zap size={11} className="fill-purple-400 text-purple-400" />
+                                            {coinBalance} Bolt Token{coinBalance === 1 ? '' : 's'}
+                                        </span>
+                                        <span className="text-gray-500 text-[11px]">({coinBalance} extra msg{coinBalance === 1 ? '' : 's'})</span>
+                                    </div>
+                                </div>
                             </div>
                             <button
-                                onClick={() => onRequireUpgrade && onRequireUpgrade()}
-                                className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[11px] font-black uppercase tracking-widest px-5 py-2 rounded-xl shadow-lg shadow-purple-500/20 hover:scale-105 active:scale-95 transition-all"
+                                onClick={() => onRequireCoins ? onRequireCoins() : (onRequireUpgrade && onRequireUpgrade('coins'))}
+                                className="self-end sm:self-center bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-[11px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-lg shadow-purple-500/25 hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
                             >
-                                Upgrade
+                                <Zap size={12} fill="currentColor" />
+                                <span>Get Tokens</span>
                             </button>
                         </div>
                     )}
@@ -2701,6 +2743,25 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                             </div>
                         </div>
                     </form>
+                    {/* Remaining messages and Bolt tokens counter */}
+                    {coinBalance !== Infinity && (
+                        <div className="flex items-center justify-between px-3 pt-1.5 text-[11px] text-gray-400 select-none">
+                            <span className="flex items-center gap-1.5 text-purple-300 font-medium">
+                                <Zap size={11} className="fill-purple-400 text-purple-400" />
+                                {dailyFreeRemaining > 0 
+                                    ? `${dailyFreeRemaining}/10 Free Messages today` 
+                                    : 'Daily free limit reached'}
+                            </span>
+                            <span 
+                                onClick={() => onRequireCoins ? onRequireCoins() : (onRequireUpgrade && onRequireUpgrade('coins'))}
+                                className="cursor-pointer hover:text-white transition-colors flex items-center gap-1 font-semibold text-pink-300"
+                                title="Click to get more Bolt Tokens"
+                            >
+                                {coinBalance} Bolt Token{coinBalance === 1 ? '' : 's'}
+                                <span className="underline ml-0.5 text-[10px] text-purple-400">Top up</span>
+                            </span>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -3226,6 +3287,58 @@ Example: *I step closer, the cold wind rustling my hair as I look up at you, my 
                             </button>
                             <p className="text-[10px] text-center text-gray-500 tracking-wider">Cancel anytime. Best value deal available now.</p>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Out of Messages & Tokens Modal (No subscription required!) */}
+            {showOutOfTokensModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setShowOutOfTokensModal(false)} />
+                    <div className="relative w-full max-w-sm bg-gray-950 border border-purple-500/30 rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+                        <button
+                            onClick={() => setShowOutOfTokensModal(false)}
+                            className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+                        >
+                            <X size={18} />
+                        </button>
+                        <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-2xl flex items-center justify-center text-purple-400 shadow-lg shadow-purple-500/20">
+                            <Zap size={32} className="fill-current animate-pulse" />
+                        </div>
+                        <h3 className="text-xl font-black text-white tracking-tight mb-1.5">
+                            Daily Free Limit Reached
+                        </h3>
+                        <p className="text-xs text-gray-400 leading-relaxed mb-5">
+                            You've used your <span className="text-purple-300 font-semibold">10 free messages</span> for today. Your current balance is <span className="text-pink-300 font-semibold">{coinBalance} Bolt Tokens</span>.
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-white/[0.03] border border-white/5 mb-5 text-left">
+                            <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Daily Free</p>
+                                <p className="text-sm font-black text-purple-300 mt-0.5">0 / 10 left</p>
+                                <p className="text-[9px] text-gray-500 mt-0.5">Resets at midnight</p>
+                            </div>
+                            <div className="p-2.5 rounded-xl bg-pink-500/10 border border-pink-500/20">
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Bolt Tokens</p>
+                                <p className="text-sm font-black text-pink-300 mt-0.5">{coinBalance} Tokens</p>
+                                <p className="text-[9px] text-gray-500 mt-0.5">1 Token = 1 Msg</p>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                setShowOutOfTokensModal(false);
+                                if (onRequireCoins) onRequireCoins();
+                                else if (onRequireUpgrade) onRequireUpgrade('coins');
+                            }}
+                            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold tracking-wide shadow-lg shadow-purple-500/30 hover:scale-[1.02] active:scale-98 transition-all flex items-center justify-center gap-2 text-sm"
+                        >
+                            <Zap size={16} className="fill-current" />
+                            <span>Get Bolt Tokens</span>
+                        </button>
+                        <p className="text-[10px] text-gray-500 mt-3">
+                            No subscription required. Top up Bolt Tokens anytime or come back tomorrow for 10 free messages!
+                        </p>
                     </div>
                 </div>
             )}

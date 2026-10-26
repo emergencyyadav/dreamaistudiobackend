@@ -26,9 +26,9 @@ export async function getLiveSolPrice() {
     if (hasBackend) {
         try {
             const data = await backendJson('/api/payments/solana/price?plan=monthly');
-            if (data?.usd_price) return data.usd_price;
+            if (data?.usd_price && data.usd_price > 0) return data.usd_price;
         } catch (err) {
-            console.warn('[Solana] Backend price lookup failed, using public fallback:', err.message);
+            console.warn('[Solana] Backend price lookup failed, trying direct providers:', err.message);
         }
     }
 
@@ -37,23 +37,45 @@ export async function getLiveSolPrice() {
         return solPriceCache;
     }
 
-    try {
-        const res = await fetch(
-            'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd',
-            { signal: AbortSignal.timeout(5000) }
-        );
-        const data = await res.json();
-        const price = data?.solana?.usd;
-        if (price && price > 0) {
-            solPriceCache = price;
-            solPriceFetchedAt = now;
-            return price;
+    const providers = [
+        async () => {
+            const res = await fetch('https://api.coinbase.com/v2/prices/SOL-USD/spot', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.data?.amount);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.price);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.kraken.com/0/public/Ticker?pair=SOLUSD', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.result?.SOLUSD?.c?.[0] || data?.result?.WSOLUSD?.c?.[0]);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { signal: AbortSignal.timeout(4000) });
+            const data = await res.json();
+            const p = parseFloat(data?.solana?.usd);
+            if (p > 0) return p;
         }
-    } catch (err) {
-        console.warn('[Solana] CoinGecko fetch failed, using fallback price:', err.message);
+    ];
+
+    for (const fetchPrice of providers) {
+        try {
+            const price = await fetchPrice();
+            if (price && price > 0) {
+                solPriceCache = price;
+                solPriceFetchedAt = now;
+                return price;
+            }
+        } catch (e) { }
     }
 
-    return solPriceCache || 130;
+    return solPriceCache || 100;
 }
 
 export function calcSolAmount(plan, solPriceUsd) {

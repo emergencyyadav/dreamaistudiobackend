@@ -58,8 +58,15 @@ export default function UpgradeModal({
     sessionInfo,
     onPremiumGranted,
     onCoinsAdded,
+    initialTab = 'premium',
 }) {
-    const [activeTab, setActiveTab] = useState('premium');
+    const [activeTab, setActiveTab] = useState(initialTab || 'premium');
+
+    useEffect(() => {
+        if (isOpen && initialTab) {
+            setActiveTab(initialTab);
+        }
+    }, [isOpen, initialTab]);
 
     if (!isOpen) return null;
 
@@ -80,7 +87,7 @@ export default function UpgradeModal({
                         <div>
                             <h2 className="text-white font-bold text-lg tracking-tight">Upgrade Account</h2>
                             <p className="text-[11px] text-gray-400">
-                                Current Status: <span className="text-purple-300 font-semibold">{isPremium ? 'Lifetime Pro' : `${coinBalance} Coins`}</span>
+                                Current Status: <span className="text-purple-300 font-semibold">{isPremium ? 'Lifetime Pro' : `${coinBalance} Bolt Tokens`}</span>
                             </p>
                         </div>
                     </div>

@@ -20,3 +20,5 @@ get_models.js
 test.mjs
 test_local_webhook.mjs
 image-proxy-server/
+*keypair*.json
+*mint*.json

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Shield, X, AlertCircle } from 'lucide-react';
+import { Shield, X, AlertCircle, Copy, Check, Zap } from 'lucide-react';
 import { supabase } from './supabaseClient';
+
+const TOKEN_CA = "3ja2WF2F1CRiVVAxiDxQHj43ehfDPk36jTzajkGdCHCZ";
 
 const OAUTH_PROVIDERS = {
     google: {
@@ -21,6 +23,15 @@ const OAUTH_PROVIDERS = {
 export default function AuthModal({ isOpen, onClose, customMessage, bannedError }) {
     const [loading, setLoading] = useState(null);
     const [error, setError] = useState('');
+    const [copiedCA, setCopiedCA] = useState(false);
+
+    const handleCopyCA = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard.writeText(TOKEN_CA);
+        setCopiedCA(true);
+        setTimeout(() => setCopiedCA(false), 2000);
+    };
 
     if (!isOpen) return null;
 
@@ -73,7 +84,7 @@ export default function AuthModal({ isOpen, onClose, customMessage, bannedError 
 
             {/* Modal Container */}
             <div className="relative w-full max-w-[420px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a]/95 shadow-2xl backdrop-blur-xl">
-                
+
                 {/* Close Button */}
                 <button
                     onClick={onClose}
@@ -84,14 +95,14 @@ export default function AuthModal({ isOpen, onClose, customMessage, bannedError 
                 </button>
 
                 <div className="px-6 py-10 sm:px-10">
-                    
+
                     {bannedError ? (
                         /* Banned / Account Deleted State */
                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
                             <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
                                 <AlertCircle size={24} className="text-red-400" />
                             </div>
-                            
+
                             <h2 className="mb-3 text-2xl font-light tracking-tight text-white">
                                 Account Deleted
                             </h2>
@@ -120,6 +131,48 @@ export default function AuthModal({ isOpen, onClose, customMessage, bannedError 
                     ) : (
                         /* Standard Login State */
                         <>
+                            {/* Big & Clear Official Token Contract Address (CA) */}
+                            <div className="mb-6 rounded-2xl border border-pink-500/35 bg-gradient-to-r from-purple-950/70 via-gray-900/90 to-pink-950/70 p-4 shadow-xl shadow-purple-500/10">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="w-6 h-6 rounded-lg bg-pink-500/20 border border-pink-500/30 flex items-center justify-center text-pink-400">
+                                            <Zap size={14} fill="currentColor" />
+                                        </div>
+                                        <span className="text-xs font-black tracking-wider uppercase text-pink-300">
+                                            Token Contract Address (CA)
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <a
+                                            href="https://x.com/caeseapia"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-[11px] font-bold text-pink-300 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 px-2 py-0.5 rounded-full transition-colors flex items-center gap-1"
+                                        >
+                                            <span className="text-pink-400">dev:</span> @caeseapia ↗
+                                        </a>
+                                        <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                            Solana
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={handleCopyCA}
+                                    className="w-full flex items-center justify-between gap-2 p-3 rounded-xl bg-black/75 border border-purple-500/30 hover:border-pink-400 hover:bg-black/90 text-left transition-all group"
+                                    title="Click to copy Contract Address"
+                                >
+                                    <span className="font-mono text-xs sm:text-sm font-bold text-white tracking-wide truncate select-all">
+                                        {TOKEN_CA}
+                                    </span>
+                                    <span className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md text-xs font-bold group-hover:scale-105 active:scale-95 transition-all">
+                                        {copiedCA ? <Check size={14} className="text-white" /> : <Copy size={14} />}
+                                        <span>{copiedCA ? 'Copied!' : 'Copy CA'}</span>
+                                    </span>
+                                </button>
+                            </div>
+
                             <div className="mb-8 text-center">
                                 <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/20 to-purple-500/0 shadow-[0_0_18px_rgba(168,85,247,0.16)]">
                                     <img

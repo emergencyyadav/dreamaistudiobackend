@@ -888,16 +888,48 @@ async function getLiveSolPrice() {
         return cachedSolPrice;
     }
 
-    const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
-    const data = await response.json();
-    const price = data?.solana?.usd;
-    if (!price) {
-        throw new Error('Could not fetch the SOL price');
+    const providers = [
+        async () => {
+            const res = await fetch('https://api.coinbase.com/v2/prices/SOL-USD/spot', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.data?.amount);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.price);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.kraken.com/0/public/Ticker?pair=SOLUSD', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.result?.SOLUSD?.c?.[0] || data?.result?.WSOLUSD?.c?.[0]);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { signal: AbortSignal.timeout(4000) });
+            const data = await res.json();
+            const p = parseFloat(data?.solana?.usd);
+            if (p > 0) return p;
+        }
+    ];
+
+    for (const fetchPrice of providers) {
+        try {
+            const price = await fetchPrice();
+            if (price && price > 0) {
+                cachedSolPrice = price;
+                cachedSolPriceAt = now;
+                return price;
+            }
+        } catch (e) {
+            // try next provider
+        }
     }
 
-    cachedSolPrice = price;
-    cachedSolPriceAt = now;
-    return price;
+    console.warn('[Solana Price] All live price providers failed, using fallback.');
+    return cachedSolPrice || 100;
 }
 
 function calcSolAmount(plan, solPriceUsd) {
@@ -1322,19 +1354,47 @@ async function getLiveEthPrice() {
     if (cachedEthPrice && now - cachedEthPriceAt < PRICE_CACHE_MS) {
         return cachedEthPrice;
     }
-    try {
-        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
-        const data = await response.json();
-        const price = data?.ethereum?.usd;
-        if (price) {
-            cachedEthPrice = price;
-            cachedEthPriceAt = now;
-            return price;
+
+    const providers = [
+        async () => {
+            const res = await fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.data?.amount);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.price);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.kraken.com/0/public/Ticker?pair=ETHUSD', { signal: AbortSignal.timeout(3500) });
+            const data = await res.json();
+            const p = parseFloat(data?.result?.XETHZUSD?.c?.[0] || data?.result?.ETHUSD?.c?.[0]);
+            if (p > 0) return p;
+        },
+        async () => {
+            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd', { signal: AbortSignal.timeout(4000) });
+            const data = await res.json();
+            const p = parseFloat(data?.ethereum?.usd);
+            if (p > 0) return p;
         }
-    } catch (e) {
-        console.warn('[ETH Price] CoinGecko fetch failed, using fallback:', e.message);
+    ];
+
+    for (const fetchPrice of providers) {
+        try {
+            const price = await fetchPrice();
+            if (price && price > 0) {
+                cachedEthPrice = price;
+                cachedEthPriceAt = now;
+                return price;
+            }
+        } catch (e) { }
     }
-    return cachedEthPrice || 3200;
+
+    console.warn('[ETH Price] All live price providers failed, using fallback.');
+    return cachedEthPrice || 2500;
 }
 
 const SUPPORTED_CRYPTO_COINS = {

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowRight, ArrowLeft, Dices, CheckCircle2, MessageCircle, Sparkles, Users, ImageIcon, Play, Phone, BookOpen } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Dices, CheckCircle2, MessageCircle, Sparkles, Users, ImageIcon, Play, Phone, BookOpen, Copy, Check, ExternalLink } from 'lucide-react';
+
+const TOKEN_CA = "3ja2WF2F1CRiVVAxiDxQHj43ehfDPk36jTzajkGdCHCZ";
+const DEV_X_URL = "https://x.com/@caeseapia";
 
 // ─── All image data copied directly from CreateView ───
 const styleImages = {
@@ -193,6 +196,17 @@ export default function LandingPage({
     const scrollRef = useRef(null);
     const videoRef = useRef(null);
     const [videoFailed, setVideoFailed] = useState(false);
+    const [copiedCA, setCopiedCA] = useState(false);
+
+    const handleCopyCA = (e) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        navigator.clipboard.writeText(TOKEN_CA);
+        setCopiedCA(true);
+        setTimeout(() => setCopiedCA(false), 2000);
+    };
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -340,6 +354,53 @@ export default function LandingPage({
             <main ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto pb-16 pt-10 sm:pt-20 scrollbar-hide">
                 <div className="max-w-5xl mx-auto px-6 lg:px-10">
                     <div className="text-center mb-16 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                        {/* Token CA & Dev X Launch Header */}
+                        <div className="inline-flex flex-col md:flex-row items-center gap-2.5 p-2 sm:p-2.5 px-4 mb-6 rounded-2xl bg-gradient-to-r from-purple-950/80 via-black/90 to-pink-950/80 border border-pink-500/40 shadow-[0_0_35px_rgba(236,72,153,0.3)] backdrop-blur-xl max-w-full">
+                            {/* Dev X Profile Link */}
+                            <a
+                                href={DEV_X_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white transition-all group shrink-0"
+                                title="Visit Dev X Profile"
+                            >
+                                <span className="text-xs font-black uppercase tracking-wider text-pink-300">dev:</span>
+                                <svg className="w-3.5 h-3.5 fill-current text-white group-hover:text-pink-400 transition-colors" viewBox="0 0 24 24">
+                                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                                </svg>
+                                <span className="text-xs font-bold text-gray-200 group-hover:text-white">@caeseapia</span>
+                                <ExternalLink size={12} className="text-gray-400 group-hover:text-pink-300" />
+                            </a>
+
+                            <div className="hidden md:block h-5 w-[1px] bg-white/20" />
+
+                            {/* CA Click to Copy */}
+                            <div className="flex items-center gap-2 bg-black/60 border border-purple-500/30 rounded-xl px-3 py-1.5 max-w-full">
+                                <span className="text-[11px] font-black uppercase tracking-wider text-pink-400 shrink-0">CA:</span>
+                                <span className="font-mono text-xs sm:text-sm font-bold text-white tracking-wide select-all">
+                                    {TOKEN_CA}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleCopyCA}
+                                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 shrink-0"
+                                    title="Click to copy Contract Address"
+                                >
+                                    {copiedCA ? (
+                                        <>
+                                            <Check size={13} className="text-white" />
+                                            <span className="text-green-300 font-black">Copied!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy size={13} />
+                                            <span>Copy CA</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+
                         <h1 className="text-4xl sm:text-6xl font-black tracking-tight mb-4 drop-shadow-2xl">
                             Unlock the Ultimate <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">AI Experience</span>
                         </h1>

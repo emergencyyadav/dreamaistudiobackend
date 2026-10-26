@@ -61,7 +61,9 @@ import {
   Activity,
   Trash2,
   Drama,
-  BookOpen
+  BookOpen,
+  ExternalLink,
+  Copy
 } from "lucide-react";
 
 function extractFirstImage(imgField) {
@@ -157,111 +159,97 @@ const RedditIcon = ({ size = 20, className = "" }) => (
   </svg>
 );
 
-// ── Promo Slider Component ──
-const promoSlides = [
-  {
-    id: 1,
-    title: "Premium Unlimited",
-    subtitle: "Unlock completely unrestricted chat, voice messages, and exclusive image generation.",
-    badge: "50% OFF",
-    gradient: "from-purple-600 to-pink-600",
-    image: "https://scontent-fml20-1.xx.fbcdn.net/v/t1.15752-9/664942261_1217053043841263_140641987614141883_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=103&ccb=1-7&_nc_sid=9f807c&_nc_ohc=-0WEp_t8Sc8Q7kNvwFjOlyy&_nc_oc=AdoSeAxTzL3GY5Dsr9OP5NXiRL1dZcyol3urkp5vyZkjDcjXL9zsutV39VuB6i9SDeY&_nc_zt=23&_nc_ht=scontent-fml20-1.xx&_nc_ss=7a3a8&oh=03_Q7cD5AFHKeSM1Gkd-ZzYNMGOKOiPY1sodvk5UbvCVmes7KI0-w&oe=69FA8D76",
-    action: "Upgrade Now"
-  },
+// ── Main Launch Banner (Pump.fun / Axiom / Padre) ──
+const TOKEN_CA = "3ja2WF2F1CRiVVAxiDxQHj43ehfDPk36jTzajkGdCHCZ";
+const PUMPFUN_URL = `https://pump.fun/coin/${TOKEN_CA}`;
+const AXIOM_URL = `https://axiom.trade/trade/${TOKEN_CA}`;
+const PADRE_URL = `https://trade.padre.gg/trade/solana/${TOKEN_CA}`;
 
+function MainLaunchBanner() {
+  const [copied, setCopied] = useState(false);
 
-];
-
-function PromoSlider({ onSlideClick }) {
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const touchStartX = useRef(null);
-  const touchEndX = useRef(null);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentSlide(prev => (prev + 1) % promoSlides.length);
-    }, 4500);
-    return () => clearInterval(timer);
-  }, []);
-
-  const handleTouchStart = (e) => {
-    touchStartX.current = e.targetTouches[0].clientX;
-    touchEndX.current = null;
-  };
-
-  const handleTouchMove = (e) => {
-    touchEndX.current = e.targetTouches[0].clientX;
-  };
-
-  const handleTouchEnd = () => {
-    if (!touchStartX.current || !touchEndX.current) return;
-
-    const distance = touchStartX.current - touchEndX.current;
-
-    if (distance > 50) {
-      // Swiped Left
-      setCurrentSlide(prev => (prev + 1) % promoSlides.length);
-    } else if (distance < -50) {
-      // Swiped Right
-      setCurrentSlide(prev => (prev === 0 ? promoSlides.length - 1 : prev - 1));
-    }
+  const handleCopy = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(TOKEN_CA);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div
-      className="relative w-full max-w-3xl mx-auto mb-6 md:mb-8 rounded-2xl md:rounded-[2rem] overflow-hidden shadow-2xl group cursor-pointer"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onClick={(e) => {
-        // Prevent registering a click if the user was actually trying to swipe
-        if (touchStartX.current && touchEndX.current && Math.abs(touchStartX.current - touchEndX.current) > 20) {
-          e.preventDefault();
-          return;
-        }
-        onSlideClick(promoSlides[currentSlide]);
-      }}
-    >
-      <div
-        className="flex transition-transform duration-700 ease-[cubic-bezier(0.25,1,0.5,1)] w-full relative aspect-[4/3] sm:aspect-video md:aspect-[21/9] lg:h-64 rounded-2xl overflow-hidden"
-        style={{ transform: `translateX(-${currentSlide * 100}%)` }}
-      >
-        {promoSlides.map((slide) => (
-          <div key={slide.id} className="min-w-full relative shrink-0 bg-gray-950 flex items-center justify-center overflow-hidden">
-            {/* Blurred background layer to fill empty sides */}
-            <img
-              src={slide.image}
-              className="absolute inset-0 w-full h-full object-cover opacity-40 blur-3xl scale-110 pointer-events-none"
-              alt=""
-            />
-            {/* Foreground crisp image */}
-            <img
-              src={slide.image}
-              alt={slide.title}
-              className="relative z-10 w-full h-full object-contain object-center pointer-events-none pb-6 md:pb-0 md:p-2"
-            />
+    <div className="relative w-full max-w-4xl mx-auto mb-6 md:mb-8 rounded-2xl md:rounded-[2rem] overflow-hidden shadow-2xl border border-pink-500/25 bg-[#f8ccd6] group">
+      {/* Banner Image Container */}
+      <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] md:aspect-[24/9] overflow-hidden">
+        <img
+          src="/pump_fun_banner.png"
+          alt="Luvora Token Launch"
+          className="w-full h-full object-cover object-center transition-transform duration-700 group-hover:scale-105"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/40 to-transparent pointer-events-none" />
 
-            <div className="absolute z-20 inset-0 bg-gradient-to-t from-gray-950 via-gray-950/40 to-transparent pointer-events-none" />
-
-            <div className="absolute z-30 inset-x-0 bottom-0 p-3 sm:p-4 md:p-6 flex flex-col justify-end">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="px-2 py-1 bg-white/20 backdrop-blur-md rounded-lg text-[9px] sm:text-[10px] md:text-[11px] font-black uppercase tracking-wider text-white border border-white/30">{slide.badge}</span>
-              </div>
-              <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-black text-white leading-tight mb-1 drop-shadow-md">{slide.title}</h2>
-              <p className="text-gray-200 text-[10px] sm:text-xs font-medium line-clamp-2 max-w-xl mb-2 sm:mb-3 drop-shadow-sm leading-relaxed">{slide.subtitle}</p>
-              <div className="flex items-center gap-1.5 sm:gap-2 text-white font-bold text-[11px] sm:text-xs md:text-sm group-hover:gap-3 transition-all">
-                {slide.action} <ChevronRight size={14} className="md:w-[16px] md:h-[16px]" />
-              </div>
+        {/* Floating Trading & CA Bar inside the banner */}
+        <div className="absolute inset-x-0 bottom-0 p-3 sm:p-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 z-10">
+          
+          {/* CA Click to Copy Box */}
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex items-center justify-between sm:justify-start gap-2 px-3.5 py-2 rounded-xl bg-black/85 backdrop-blur-md border border-purple-500/30 hover:border-purple-400 hover:bg-black/95 transition-all text-left shadow-lg group/ca"
+            title="Click to copy Contract Address"
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-pink-400">CA:</span>
+              <span className="font-mono text-[11px] sm:text-xs text-purple-200 truncate max-w-[150px] sm:max-w-[210px] md:max-w-[280px]">
+                {TOKEN_CA}
+              </span>
             </div>
-          </div>
-        ))}
-      </div>
+            <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-600/30 text-purple-200 group-hover/ca:bg-purple-600 group-hover/ca:text-white transition-all text-[10px] sm:text-[11px] font-bold">
+              {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+              <span>{copied ? 'Copied!' : 'Copy'}</span>
+            </span>
+          </button>
 
-      {/* Position Pagination Dots */}
-      <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 flex gap-1.5 z-10">
-        {promoSlides.map((_, i) => (
-          <div key={i} className={`h-1 sm:h-1.5 rounded-full transition-all duration-300 ${currentSlide === i ? 'w-5 sm:w-6 bg-white shadow-[0_0_10px_rgba(255,255,255,0.8)]' : 'w-1 sm:w-1.5 bg-white/40'}`} />
-        ))}
+          {/* Direct Trade Links: pump.fun / Axiom / Padre */}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap justify-end">
+            {/* pump.fun */}
+            <a
+              href={PUMPFUN_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-500/20 hover:bg-green-500/35 border border-green-500/40 backdrop-blur-md text-white text-xs font-bold transition-all hover:scale-105 active:scale-95 shadow-md shadow-green-500/10"
+              title="Trade on pump.fun"
+            >
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span>pump.fun</span>
+              <ExternalLink size={12} className="text-green-300" />
+            </a>
+
+            {/* Axiom */}
+            <a
+              href={AXIOM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-500/40 backdrop-blur-md text-white text-xs font-bold transition-all hover:scale-105 active:scale-95 shadow-md shadow-cyan-500/10"
+              title="Trade on Axiom"
+            >
+              <span>Axiom</span>
+              <ExternalLink size={12} className="text-cyan-300" />
+            </a>
+
+            {/* Padre */}
+            <a
+              href={PADRE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/25 hover:bg-purple-500/40 border border-purple-500/40 backdrop-blur-md text-white text-xs font-bold transition-all hover:scale-105 active:scale-95 shadow-md shadow-purple-500/10"
+              title="Trade on Padre"
+            >
+              <span>Padre</span>
+              <ExternalLink size={12} className="text-purple-300" />
+            </a>
+          </div>
+
+        </div>
       </div>
     </div>
   );
@@ -457,6 +445,28 @@ export default function App() {
   const [coinBalance, setCoinBalance] = useState(0);
   const [isPremium, setIsPremium] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeModalTab, setUpgradeModalTab] = useState('premium');
+
+  const DAILY_FREE_MSG_LIMIT = 10;
+  const getDailyFreeKey = (userId) => {
+    const today = new Date().toISOString().slice(0, 10);
+    return `luvora_daily_msgs_${userId || 'guest'}_${today}`;
+  };
+  const getDailyFreeRemaining = (userId) => {
+    try {
+      const key = getDailyFreeKey(userId);
+      const used = parseInt(localStorage.getItem(key) || '0', 10);
+      return Math.max(0, DAILY_FREE_MSG_LIMIT - used);
+    } catch (e) {
+      return DAILY_FREE_MSG_LIMIT;
+    }
+  };
+
+  const [dailyFreeRemaining, setDailyFreeRemaining] = useState(() => getDailyFreeRemaining(sessionInfo?.user?.id));
+
+  useEffect(() => {
+    setDailyFreeRemaining(getDailyFreeRemaining(sessionInfo?.user?.id));
+  }, [sessionInfo?.user?.id]);
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLangDropdown, setShowLangDropdown] = useState(false);
@@ -531,16 +541,18 @@ export default function App() {
               console.warn("⚠️ This account has been permanently deleted.");
               return;
             }
-            setCoinBalance(data.coin_balance ?? 50); // new default is 50 coins
+            setCoinBalance(data.coin_balance ?? 10); // default is 10 Bolt tokens
             setIsPremium(data.is_premium ?? false);
           }
         });
     }
   }, [sessionInfo, profileRefreshKey]);
 
+  // General coin burn for character creation, image gen, donations
   const handleBurnCoin = async (amount) => {
     if (isPremium) return true; // Premium gets unlimited (or bypassed for now)
     if (coinBalance < amount) {
+      setUpgradeModalTab('coins');
       setShowUpgradeModal(true);
       return false;
     }
@@ -550,6 +562,43 @@ export default function App() {
       await supabase.from('users').update({ coin_balance: newBal }).eq('uuid', sessionInfo.user.id);
     }
     return true;
+  };
+
+  // Dedicated chat message consumption: uses 10 daily free messages first, then 1 Bolt Token
+  const handleBurnChatCoin = async () => {
+    if (isPremium) return { ok: true, usedFree: false, freeRemaining: Infinity, coinBalance };
+
+    const uid = sessionInfo?.user?.id;
+    const currentFree = getDailyFreeRemaining(uid);
+
+    // 1. Daily free messages (10/day) — no Bolt tokens deducted
+    if (currentFree > 0) {
+      try {
+        const key = getDailyFreeKey(uid);
+        const used = parseInt(localStorage.getItem(key) || '0', 10);
+        const nextUsed = used + 1;
+        localStorage.setItem(key, String(nextUsed));
+        const nextRemaining = Math.max(0, DAILY_FREE_MSG_LIMIT - nextUsed);
+        setDailyFreeRemaining(nextRemaining);
+        return { ok: true, usedFree: true, freeRemaining: nextRemaining, coinBalance };
+      } catch (e) {
+        console.warn('Daily free counter error:', e);
+        return { ok: true, usedFree: true, freeRemaining: currentFree - 1, coinBalance };
+      }
+    }
+
+    // 2. Extra messages require Bolt Tokens (1 token = 1 message)
+    if (coinBalance >= 1) {
+      const newBal = coinBalance - 1;
+      setCoinBalance(newBal); // optimistic update
+      if (sessionInfo?.user?.id) {
+        await supabase.from('users').update({ coin_balance: newBal }).eq('uuid', sessionInfo.user.id);
+      }
+      return { ok: true, usedFree: false, freeRemaining: 0, coinBalance: newBal };
+    }
+
+    // 3. Out of free messages AND Bolt Tokens (never force subscription)
+    return { ok: false, reason: 'OUT_OF_TOKENS', freeRemaining: 0, coinBalance: 0 };
   };
 
   const handleGuardTrigger = (reason) => {
@@ -1026,6 +1075,7 @@ export default function App() {
                 if (mobile) setMobileSidebarOpen(false);
                 return;
               }
+              setUpgradeModalTab('premium');
               setShowUpgradeModal(true);
               if (mobile) setMobileSidebarOpen(false);
             }}
@@ -1339,7 +1389,11 @@ export default function App() {
                                       {sessionInfo?.user?.email && (
                                         <p className="text-gray-500 text-xs truncate max-w-[120px]">{sessionInfo.user.email}</p>
                                       )}
-                                      <div className="flex items-center gap-1 px-1.5 py-[2px] rounded bg-purple-500/10 border border-purple-500/20 shrink-0" title="Bolt Tokens">
+                                      <div
+                                        className="flex items-center gap-1 px-1.5 py-[2px] rounded bg-purple-500/10 border border-purple-500/20 shrink-0 cursor-pointer hover:bg-purple-500/20 transition-colors"
+                                        title={`${dailyFreeRemaining}/10 Free Messages today | ${isPremium ? 'Unlimited' : coinBalance} Bolt Tokens`}
+                                        onClick={() => { setUpgradeModalTab('coins'); setShowUpgradeModal(true); setShowProfileDropdown(false); }}
+                                      >
                                         <Zap size={10} className="text-purple-400 fill-purple-400/50" />
                                         <span className="text-[10px] font-bold text-purple-400 truncate tracking-wide">{isPremium ? '∞' : coinBalance}</span>
                                       </div>
@@ -1364,7 +1418,7 @@ export default function App() {
                                   {isLightTheme ? t('darkTheme') : t('whiteTheme')}
                                 </button>
                                 <button
-                                  onClick={() => { setShowUpgradeModal(true); setShowProfileDropdown(false); }}
+                                  onClick={() => { setUpgradeModalTab('coins'); setShowUpgradeModal(true); setShowProfileDropdown(false); }}
                                   className="w-full flex items-center gap-3 px-4 py-3 text-amber-300 hover:text-amber-100 hover:bg-amber-900/30 transition-colors text-sm font-bold"
                                 >
                                   <Zap size={16} className="text-amber-400" />
@@ -1473,8 +1527,17 @@ export default function App() {
                     setIsAuthOpen(true);
                   }}
                   coinBalance={isPremium ? Infinity : coinBalance}
+                  dailyFreeRemaining={dailyFreeRemaining}
                   onBurnCoin={handleBurnCoin}
-                  onRequireUpgrade={() => setShowUpgradeModal(true)}
+                  onBurnChatCoin={handleBurnChatCoin}
+                  onRequireUpgrade={(tab = 'premium') => {
+                    setUpgradeModalTab(tab);
+                    setShowUpgradeModal(true);
+                  }}
+                  onRequireCoins={() => {
+                    setUpgradeModalTab('coins');
+                    setShowUpgradeModal(true);
+                  }}
                   onGuard={handleGuardTrigger}
                 />
               ) : activeView === "Roleplay" ? (
@@ -1529,27 +1592,8 @@ export default function App() {
               ) : activeView === "Explore" ? (
                 <div className="px-4 lg:px-6 py-5">
 
-                  {/* Promo Banner Slider */}
-                  <PromoSlider onSlideClick={(slide) => {
-                    if (slide.id === 1) {
-                      if (!user) {
-                        setAuthMessage("Sign in to upgrade to Premium Unlimited!");
-                        setIsAuthOpen(true);
-                        return;
-                      }
-                      setShowUpgradeModal(true);
-                    } else if (slide.id === 2) {
-                      if (!user) {
-                        setAuthMessage("Sign in to generate stunning images!");
-                        setIsAuthOpen(true);
-                        return;
-                      }
-                      setActiveView("Generate");
-                    } else if (slide.id === 3) {
-                      setAuthMessage("Create an account to join the Creator Payouts program!");
-                      setIsAuthOpen(true);
-                    }
-                  }} />
+                  {/* Main Launch Banner */}
+                  <MainLaunchBanner />
 
                   <div className={`relative max-w-2xl mx-auto mb-4 flex gap-2 sm:gap-3 transition-all duration-300 ${searchFocused ? 'scale-[1.02]' : ''}`}>
                     <div className="relative flex-1">
@@ -2000,6 +2044,7 @@ export default function App() {
       <UpgradeModal
         isOpen={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
+        initialTab={upgradeModalTab}
         coinBalance={coinBalance}
         isPremium={isPremium}
         userUuid={sessionInfo?.user?.id}
