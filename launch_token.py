@@ -207,12 +207,11 @@ def launch_token(
                 pinata_jwt=pinata_key
             )
         else:
-            print("\n⚠️ No Pinata JWT provided or image not found.")
-            print("Please enter the public IPFS or HTTPS URI to your token metadata JSON:")
-            print("(e.g. https://ipfs.io/ipfs/Qm... or your hosted metadata.json link)")
-            metadata_uri = input("> ").strip()
-            if not metadata_uri:
-                raise ValueError("A valid metadata URI is required to create the token.")
+            default_meta_url = "https://raw.githubusercontent.com/emergencyyadav/dreamaistudiobackend/main/token_metadata.json"
+            print("\n💡 Pinata JWT not detected (optional).")
+            print(f"Default metadata URI: {default_meta_url}")
+            custom_uri = input("Enter custom IPFS/HTTPS metadata URI (or press Enter to use default): ").strip()
+            metadata_uri = custom_uri if custom_uri else default_meta_url
 
     print(f"\n📋 Metadata Summary:")
     print(f"   • Name:         {name}")
@@ -304,12 +303,12 @@ def launch_token(
 
 def main():
     parser = argparse.ArgumentParser(description="Launch a token on pump.fun with fixed CA.")
-    parser.add_argument("--name", default="Luvora AI", help="Token Name (default: Luvora AI)")
-    parser.add_argument("--symbol", default="LUVORA", help="Token Ticker/Symbol (default: LUVORA)")
-    parser.add_argument("--description", default="Luvora AI - Limitless studio for uncensored creativity, deep conversations, and immersive roleplay.", help="Token Description")
-    parser.add_argument("--image", default="./my-app/public/pump_fun_banner.png", help="Path to token image/banner file")
-    parser.add_argument("--twitter", default="https://x.com/caeseapia", help="Twitter/X profile or launch tweet URL")
-    parser.add_argument("--website", default="https://luvora.love", help="Project website URL")
+    parser.add_argument("--name", default="luvora", help="Token Name (default: luvora)")
+    parser.add_argument("--symbol", default="luvora.chat", help="Token Ticker/Symbol (default: luvora.chat)")
+    parser.add_argument("--description", default="Luvora - Limitless studio for uncensored creativity, deep conversations, and immersive roleplay. https://luvora.chat", help="Token Description")
+    parser.add_argument("--image", default="token_logo.png", help="Path to token image/banner file (default: token_logo.png)")
+    parser.add_argument("--twitter", default="https://x.com/caeseapia/status/2114784094597062947?s=20", help="Twitter/X profile or launch tweet URL")
+    parser.add_argument("--website", default="https://luvora.chat", help="Project website URL (default: https://luvora.chat)")
     parser.add_argument("--telegram", default="", help="Telegram community link")
     parser.add_argument("--metadata-uri", default=None, help="Direct IPFS/HTTPS metadata URI (optional)")
     parser.add_argument("--buy", type=float, default=0.0, help="Initial dev buy amount in SOL (default: 0.0)")
